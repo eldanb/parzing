@@ -3,6 +3,8 @@
 ## Overview
 This package implements a parser combinator system, allowing client code to easily create parsers in JavaScript or TypeScript. When used with TypeScript accurate types are computed for parsed and intermediate results, allowing quick and safe implementation and utilization of parsers.
 
+This page provides instructions on how to use and customize parzing. For more insights behind the library, [see this blog](https://www.imonlydoingthis.benhaim.net/home/categories/parzing).
+
 ## Installation
 
 ```
