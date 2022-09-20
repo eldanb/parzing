@@ -3,7 +3,7 @@
 ## Overview
 This package implements a parser combinator system, allowing client code to easily create parsers in JavaScript or TypeScript. When used with TypeScript accurate types are computed for parsed and intermediate results, allowing quick and safe implementation and utilization of parsers.
 
-== Installation
+## Installation
 
 ```
 npm install --save @zigsterz/parzing
