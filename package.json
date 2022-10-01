@@ -2,6 +2,10 @@
   "name": "@zigsterz/parzing",
   "version": "1.1.0",  
   "description": "Parser combinators library",
+  "keywords": [
+    "parser",
+    "grammar"
+  ],
   "scripts": {
     "test": "ts-mocha test/**.ts",
     "build": "tsc && npm pack"
