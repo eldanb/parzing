@@ -6,6 +6,7 @@ import { OptionalCombinator } from "./combinators/OptionalCombinator";
 import { SequenceCombinator } from "./combinators/SequenceCombinator";
 import { CutParser, FailParser, isParser, Parser, ParserContext, ParserType, ParserWithInternalWhitespaceSupport, PassParser, RefParser } from "./core";
 import { AnyOfParser } from "./parsers/AnyOfParser";
+import { RegexParser } from "./parsers/RegexParser";
 import { TokenParser } from "./parsers/TokenParser";
 
 type WithPostfixSupport<T> = T & {
@@ -47,6 +48,10 @@ export class ParserBuilder {
           minLen: number | null = 1,
           maxLen: number | null = null) {        
         return this.postProcessParser(new AnyOfParser(alts, minLen, maxLen));
+    }
+
+    regex(re: RegExp) {        
+      return this.postProcessParser(new RegexParser(re));
     }
 
     fail(message: string = null) {

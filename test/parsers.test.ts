@@ -2,7 +2,9 @@ import assert from 'assert'
 import { parse } from '../src/core';
 import { AnyOfParser } from '../src/parsers/AnyOfParser';
 import { TokenParser } from '../src/parsers/TokenParser';
+import { RegexParser } from '../src/parsers/RegexParser';
 import { SequenceCombinator } from '../src/combinators/SequenceCombinator';
+import { ChooseCombinator } from '../src/combinators/ChooseCombinator';
 
 describe('Token Parser', () => {
     it('should return token if found', () => {
@@ -73,4 +75,42 @@ describe('AnyOf Parser', () => {
         })
     )
 
+})
+
+describe('Regex Parser', () => {
+    it('should return parsed regex match', () => {
+        const reParser = new RegexParser(/[abc]+/);
+        const parseResult = parse(reParser, 'abcdefg', true);
+        assert.equal(parseResult, 'abc');
+    })
+
+    it('should fail on regex mismatch when regex appears downstring', () => {
+        assert.throws(() => {
+            const reParser = new RegexParser(/[abc]+/);
+            const parseResult = parse(reParser, 'deabcdefg', true);    
+        }, /Expected \[abc\]\+/);
+    })
+
+    it('should fail on regex mismatch when regex does not appear', () => {
+        assert.throws(() => {
+            const reParser = new RegexParser(/[abc]+/);
+            const parseResult = parse(reParser, 'dedefg', true);    
+        }, /Expected \[abc\]\+/);
+    })
+
+    it('should eat input', () => {
+        const reParser1 = new RegexParser(/[abc]+/);
+        const reParser2 = new RegexParser(/[def]+/);
+        const seqParser = new SequenceCombinator([reParser1, reParser2]);
+        const parseResult = parse(seqParser, 'abbbabbafeedde', true);    
+        assert.deepEqual(parseResult, ["abbbabba", "feedde"]);        
+    })
+
+    it('should work well with backtracking', () => {
+        const reParser1 = new RegexParser(/[abc]+/);
+        const reParser2 = new RegexParser(/[def]+/);
+        const seqParser = new ChooseCombinator([reParser1, reParser2]);
+        const parseResult = parse(seqParser, 'deed', true);    
+        assert.deepEqual(parseResult, "deed");        
+    })
 })

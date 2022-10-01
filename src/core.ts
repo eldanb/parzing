@@ -3,6 +3,9 @@ export interface ParserInputBookmark {}
 export interface ParserInput {
     read(readLen: number): string;
     peek(peekLen: number): string;
+    
+    readRegex?(regex: RegExp): string | null;
+    peekRegex?(regex: RegExp): string | null;
 
     getBookmark(): ParserInputBookmark;
     seekToBookmark(bm: ParserInputBookmark);
@@ -32,6 +35,28 @@ export class StringParserInput implements ParserInput {
     
     peek(readLen: number): string {
         return this._text.substr(this._index, readLen);
+    }
+
+    readRegex(regex: RegExp): string | null {
+        const ret = this.peekRegex(regex);
+        if(ret) {
+            this._index += ret.length;
+        }
+
+        return ret;
+    }
+
+    peekRegex(regex: RegExp): string | null {
+        let matchResult = regex.exec(this._text.substring(this._index));
+        if(!matchResult) {
+            return null;
+        }
+
+        if(matchResult.index != 0) {
+            return null;
+        }
+
+        return matchResult[0];
     }
 
     getBookmark(): ParserInputBookmark {
@@ -111,7 +136,7 @@ export function isParser(p: any): p is Parser<unknown> {
     return 'parse' in p;
 }
 
-export class FailParser implements Parser<void> {
+export class FailParser implements Parser<unknown> {
     constructor(private _message: string = null) {}
 
     parse(parserContext: ParserContext) {

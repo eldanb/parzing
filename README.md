@@ -1,9 +1,9 @@
 # Parzing: TypesSript Parser Combinator Library
 
 ## Overview
-This package implements a parser combinator system, allowing client code to easily create parsers in JavaScript or TypeScript. When used with TypeScript accurate types are computed for parsed and intermediate results, allowing quick and safe implementation and utilization of parsers.
+This package is Parzing: a parser combinator library, allowing client code to easily create parsers in JavaScript or TypeScript. When used with TypeScript accurate types are computed for parsed and intermediate results, allowing easy and safe implementation and use of parsers.
 
-This page provides instructions on how to use and customize parzing. For more insights behind the library, [see this blog](https://www.imonlydoingthis.benhaim.net/home/categories/parzing).
+This page provides instructions on how to use and customize Parzing. For more insights about the library, [see this blog](https://www.imonlydoingthis.benhaim.net/home/categories/parzing).
 
 ## Installation
 
@@ -15,7 +15,7 @@ npm install --save @zigsterz/parzing
 
 Parzing exposes a `parse` function for invoking a parser on content. To use it, we first construct a parser, and then pass the parser along with the content to parse.  `parse` will either return a the result of succesfuly parsing the content, or throw an error describing a failure to parse.
 
-The `ParserBuilder` class exposes a set of helper factory functions for constructing parser.
+The parser passed to `parse` is usually built using the `ParserBuilder` class. This class exposes a set of helper factory functions for constructing parsers.
 
 The example below demonstrates how to parse a sequence of 1 to 3 digits by first constructing a `ParserBuilder`, then using it to create an `AnyOfParser` parser and finally running the parser using `parse`.
 
@@ -31,11 +31,11 @@ assert(result == "123");
 
 ### Parsing Results
 The result of parsing content may be a value of any type. A Parzing parser has an associated result type that describes the type of the parsing result returned by that parser.
-
+The return type from `parse` will match the result type of the parser passed to it.
 
 ### Basic Parsers
 
-`pb.anyOf` creates the Any Of *basic parser*. Basic parsers are the atomic building blocks for parsing. They may be combined using [*parser combinators*](#parser-combinators) to construct more complex parsers. 
+In the example above, `pb.anyOf` creates the Any Of *basic parser*. Basic parsers are the atomic building blocks for parsing. They may be combined using [*parser combinators*](#parser-combinators) to construct more complex parsers. 
 
 Parzing offers the following basic parsers out of the box:
 
@@ -43,17 +43,18 @@ Parzing offers the following basic parsers out of the box:
 | ------------------ | ----------- | ----------- | 
 | `ParserBuilder.anyOf(chars, min, max)` | Parses a minimum of *min* characters, and up to *max* characters, all out the characters listed in *chars*. | `string` |
 | `ParserBuilder.token(token)` | Parses the exact string specified by *token*. | `string` |
+| `ParserBuilder.regex(regex)` | Parses the regular expression specified by *regex*. | `string` |
 | `ParserBuilder.pass()` | This is a no-op parser. It consumes no input and always succeeds. | `void` |
 | `ParserBuilder.fail(message)` | Fail parsing with the error message provided in *message*. | `void` |
 
-In addition to these parsers, you can create [custom parsers](#custom-parsers) to parse arbitrary complex "atoms". Customer parsers may provide any result type.
+In addition to these parsers, you can create [custom parsers](#custom-parsers) to parse arbitrary complex "atoms". Custom parsers may provide any result type.
 
 ## Creating Complex Parsers
 
 ### Parser Combinators
-*Parser Combinators* are parsers that are constructed based on other parsers, and combine these parsers in some form to generate a more complex parser. 
+*Parser Combinators* are parsers constructed based on other parsers that combine these parsers in some form to generate a more complex parser. 
 
-Perhaps the simplest example of a paser combinator is the Sequence combinator. 
+Perhaps the simplest example of a parser combinator is the Sequence combinator. 
 The sequence combinator is constructed based on a sequence of underlying parsers, using the `ParserBuilder.sequence(...)` factory method.
 When parsing input content, the combinator will invoke each of the underlying parsers to parse consecutive fragments of the content. 
 If any underlying parser fails, the sequence parser fails as well. 
@@ -78,7 +79,7 @@ const result = parse(sample_parser, "1-2-3", true);
 assert.deepEqual(result, ["1", "-", "2", "-", "3"]);
 ```
 
-In addition to the `sequence` parser combinator, the following parser combinators offered by Parzing out-of-the box:
+In addition to the `sequence` parser combinator, the following parser combinators are offered by Parzing out-of-the box:
 
 | Parser constructor | Description | Result type |
 | ------------------ | ----------- | ----------- | 
@@ -93,12 +94,12 @@ In addition to the `sequence` parser combinator, the following parser combinator
 
 ### Whitespace Support
 
-Parsers that derive from `ParserWithInternalWhitespaceSupport` support ignoring whitespace within the content. Exactly where whitespace is ignored depends on the specific parser (see table below). 
+Parsers that derive from `ParserWithInternalWhitespaceSupport` support ignoring whitespace within parsed content. Exactly where whitespace is ignored depends on the specific parser as per the table below. 
 
 For all of these parsers, the ignored "whitespace" is defined as content that can be parsed by the *whitespace parser*. The whitespace parser can be set by invoking `target_parser.whitespace(whitespace_parser)`. 
-If this method is not invoked on the parser, and the parser was created using `ParserBuilder`, then the whitespace parser is set as the default whitespace parser for the builder. The default whitespace parser for a `ParserBuilder` can be set by passing it on construction.
-
 If there's no set whitespace parser on a `ParserWithInternalWhitespaceSupport`, no whitespace will be ignored.
+
+If the `whitespace` method is not invoked on a parser, and the parser was created using `ParserBuilder`, then the whitespace parser is set as the default whitespace parser for the builder. The default whitespace parser for a `ParserBuilder` can be set by passing it on construction.
 
 The `WhitespaceParser` class implements a parser that accepts common whitespace patterns. 
 
@@ -169,9 +170,10 @@ This parser will fail, but the failure will be reported by the `choice` combinat
 ParseError { message: 'Parser rejected input' }
 ```
 
-Clearly, for the input `number a123` a more approach would be to not even try the second alternative in the `choice` combinator above, and immediately bail out if we've encountered the `number` token. 
-This kind of behavior can be achieved using cuts. A cut is a special parser, constructed using `ParserBuilder.cut`, that doesn't attempt to consume any input. Rather, 
-When a cut 'parses', the fact that it was encountered is recored in the parsing context. Backtracking parsers, such as the ones listed above, will not attempt to backtrack parsing if a cut was encountered by one of their underlying parsers. Rather they will immediate fail with whatever failure that would have caused them to backtrack.
+Clearly, for the input `number a123` a more reasonable behavior would be if the parser didn't even try the second alternative in the `choice` combinator above, and immediately bail out if we've encountered the `number` token. In Parzing, This kind of behavior can be achieved using *cuts*. 
+
+A cut is a special parser, constructed using `ParserBuilder.cut`, that doesn't attempt to consume any input. Rather, 
+When a cut 'parses', the fact that it was encountered is recored in the parsing context. Backtracking parsers, such as the ones listed above, will not attempt to backtrack parsing if a cut was encountered by one of their underlying parsers. Rather they will immediately fail with whatever failure that would have caused them to backtrack.
 
 Fixing the example above using cuts, we can write:
 
@@ -204,7 +206,7 @@ which would now result in the following exception:
 ParseError { message: "Expecting AnyOf 0123456789 at 7 ('a123')" }
 ```
 
-Clearly a more useful error message. Note that in addition to yielding clearer errors, cuts may also improve parsing performance since by preventing backtracks.
+Clearly a more useful error message. Note that in addition to yielding clearer errors, cuts may also improve parsing performance by preventing backtracks.
 
 There are cases where you may want to reuse the same parser in different contexts -- where in some contexts you want the cut to appear but in others you want the cut to be ignored. This is achieved by invoking ``ParserBuilder.attempt`` on the parser which will return an ``AttemptCombinator``. This combinator parser will "swallow" any cut encountered indication within the underlying parser.
 
@@ -252,12 +254,14 @@ Parzing offers the following operators out of the box. Note that you can also cr
     
 ### Recursive Parsers
 
-In many cases a language may include recursive grammar definitions. Consider for example the following simple expresion parser grammer: 
+Grammars often include recursive definitions. Consider for example the following simple expresion parser grammer: 
 
+```
 expression := addition | subtraction
 addition := term '+' term
 subtraction := term '-' term
 term := number | '(' expression ')'
+````
 
 How would we define this using Parzing? 
 
@@ -291,9 +295,9 @@ const subtraction = pb.sequence(
 const expression = pb.choice(addition, subtraction);
 ```
 
-Note the comment "Ooops!" above. The recursive nature of the parser creates a circular declaration in Typescript, which is disallowed.
+Note the comment "Ooops!" above. The recursive nature of the parser creates a circular declaration, which is disallowed in Typescript.
 
-The `ParserBuilder.ref` method allows coping with this situation by receiving a parameterless function returning a parser, and creating a parser that lazily resolves to the function's return value. 
+The `ParserBuilder.ref` method allows solving  this problem by receiving a parameterless function returning a parser, and creating a parser that lazily resolves to the function's return value. 
 Using this mechanism, our recursive parser becomes possible by modifying the code above as follows:
 
 
