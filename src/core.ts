@@ -88,12 +88,27 @@ export class StringParserInput implements ParserInput {
   }
 }
 
+export interface CompletionEvent<C = unknown> {
+  readonly userContext: C;
+  readonly nameStack: readonly string[];
+}
+
 export class ParserContext<C = unknown> {
+  // Private fields typed with `any` for C keep ParserContext<C> covariant in C;
+  // typed C here would make it invariant and break Parser<T, less-specific> subtype assignments.
+  private _whitespaceParser: Parser<unknown, any> | null;
+  private _onCompletion: ((e: CompletionEvent<any>) => void) | undefined;
+  private _nameStack: string[] = [];
+
   constructor(
     private _input: ParserInput,
-    private _whitespaceParser: Parser<unknown, any> | null = null,
+    whitespaceParser: Parser<unknown, any> | null = null,
     public readonly userContext: C = undefined as unknown as C,
-  ) {}
+    onCompletion?: (e: CompletionEvent<C>) => void,
+  ) {
+    this._whitespaceParser = whitespaceParser;
+    this._onCompletion = onCompletion;
+  }
 
   parseWhitespace() {
     if (this._whitespaceParser) {
@@ -103,6 +118,22 @@ export class ParserContext<C = unknown> {
 
   get input(): ParserInput {
     return this._input;
+  }
+
+  pushName(name: string): void {
+    this._nameStack.push(name);
+  }
+
+  popName(): void {
+    this._nameStack.pop();
+  }
+
+  get nameStack(): readonly string[] {
+    return this._nameStack;
+  }
+
+  onIncompleteParseOption(): void {
+    this._onCompletion?.({ userContext: this.userContext, nameStack: this._nameStack.slice() });
   }
 
   public cutEncountered: boolean = false;
@@ -212,36 +243,38 @@ export function parse<T, C = unknown>(
   input: ParserInput | string,
   allowPartial: boolean = false,
   userContext?: C,
+  onCompletion?: (e: CompletionEvent<C>) => void,
 ): T {
   if (typeof input === "string") {
     input = new StringParserInput(input);
   }
 
-  let context = new ParserContext<C>(input, null, userContext as C);
-  const ret = parser.parse(context);
+  let context = new ParserContext<C>(input, null, userContext as C, onCompletion);
+  const result = ParseResult.resultOrThrow(parser.parse(context));
 
   if (!allowPartial && !input.eof()) {
-    throw new ParseError(
-      input,
-      input.getBookmark(),
-      null,
-      `End of input expected`,
-    );
+    throw new ParseError(input, input.getBookmark(), null, `End of input expected`);
   }
 
-  return ParseResult.resultOrThrow(ret);
+  return result;
 }
 
 export class ParseError {
   public message: string;
+  public readonly nameStack: readonly string[];
 
   constructor(
     input: ParserInput,
     bookmark: ParserInputBookmark | null,
     parser: Parser<unknown, any> | null,
     contentMessage: string,
+    nameStack: readonly string[] = [],
   ) {
+    this.nameStack = nameStack;
     this.message = contentMessage;
+    if (nameStack.length > 0) {
+      this.message = `[${nameStack.join(' > ')}] ${this.message}`;
+    }
     if (bookmark) {
       this.message = `${this.message} at ${bookmark} ('${input.peek(5)}')`;
     }
@@ -261,6 +294,7 @@ export class ParseError {
       context.input.getBookmark(),
       parser,
       message || `Parser rejected input`,
+      context.nameStack.slice(),
     );
   }
 }

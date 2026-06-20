@@ -1,6 +1,6 @@
 # Parzing — Architecture
 
-> This file is kept up to date by Claude Code after every working session. Last updated: 2026-06-20 (parsing context + observe operator).
+> This file is kept up to date by Claude Code after every working session. Last updated: 2026-06-20 (parsing context, observe operator, named parser + completion).
 
 ## Purpose
 
@@ -26,10 +26,12 @@ Parzing is a **parser combinator library** for TypeScript. It provides typed bui
 │  AstBuilder        │                                │
 │  AttemptParser     │                                │
 │  ParserWithIndices │                                │
+│  NamedParser       │                                │
 ├────────────────────┴────────────────────────────────┤
 │  Core (core.ts)                                     │
 │  Parser<T>  ParserInput  ParserContext  ParseResult  │
 │  ParseError  StringParserInput  RefParser  CutParser │
+│  CompletionEvent                                    │
 └─────────────────────────────────────────────────────┘
 ```
 
@@ -60,13 +62,23 @@ An abstraction over the input stream. Supports:
 Wraps a `ParserInput` and carries cross-parser state:
 - `input` — the stream being parsed
 - `cutEncountered` — a boolean flag set by `CutParser`; suppresses backtracking in combinators
-- `userContext: C` — caller-supplied context object, passed to `parse()` and threaded through the entire parse; accessible in `ParseObserver` callbacks
+- `userContext: C` — caller-supplied context object, passed to `parse()` and threaded through the entire parse; accessible in `ParseObserver` callbacks and `CompletionEvent`
+- `nameStack: readonly string[]` — stack of names pushed by `NamedParser`; read by `ParseError` and `CompletionEvent` to provide human-readable location context
+- `onIncompleteParseOption()` — called by leaf parsers when they fail at EOF; fires the `onCompletion` callback supplied to `parse()` with a snapshot of `userContext` and `nameStack`
 
 ### `ParseResult<T>`
 A discriminated union: `{ successful: true; result: T }` or `{ successful: false; parseError: ParseError }`. Returned by every `parse()` call. The top-level `parse()` function unwraps this and throws on failure.
 
 ### `ParseError`
-Carries a human-readable `message` with position info (`at <offset> ('<preview>')`).
+Carries a human-readable `message` with position info (`at <offset> ('<preview>')`). Also carries `nameStack: readonly string[]` (a snapshot captured at error time from `ParserContext.nameStack`). If non-empty, the name stack is prepended to the message as `[outer > inner] ...`.
+
+### `CompletionEvent<C = unknown>`
+Fired by `ParserContext.onIncompleteParseOption()` when a leaf parser encounters EOF. Contains `userContext: C` and `nameStack: readonly string[]` — both snapshotted at the time of the event. Collected via the `onCompletion` callback passed to `parse()`. Multiple events may fire per `parse()` call (one per branch that hits EOF).
+
+**Leaf parsers that fire completion events:**
+- `TokenParser` — when `peek(n)` returns fewer chars than the token length AND the partial string is a prefix of the token (covers both "called at EOF" and "partial match" cases)
+- `AnyOfParser` — when the char-reading loop exits due to EOF and count < minLen
+- `RegexParser` — when invoked at EOF (position already exhausted before regex is tried)
 
 ### Special parsers in core
 | Class | Behaviour |
@@ -123,6 +135,9 @@ Wraps a parser and returns `{ result, start, length }` — the original result a
 ### `ParseObserver<T, C>` — `ParserOperators.observe(callbacks)`
 Wraps a parser with optional `enter` and `leave` callbacks that receive the typed user context `C`. `enter(ctx)` is called before the inner parser runs; `leave(ctx, result)` is called after, regardless of success or failure, receiving the full `ParseResult<T>`. Neither callback can affect the parse result — they are pure side effects for enriching the context object. Does not touch `cutEncountered`.
 
+### `NamedParser<T, C>` — `parser.named(parser, name)` / `ParserOperators.named(name)`
+Wraps a parser with a name label. Before invoking the inner parser, pushes `name` onto `ParserContext.nameStack`; pops it afterward (via `try/finally`). The name stack propagates into `ParseError.nameStack` (for human-readable error context) and into `CompletionEvent.nameStack` (for labelling completion options). Does not affect parse results or `cutEncountered`.
+
 ---
 
 ## Builder & Operators (`src/builder.ts`, `src/operators.ts`)
@@ -132,10 +147,10 @@ The recommended way to construct parsers. Generic on the user context type `C`; 
 1. Applies `_ws` to parsers that extend `ParserWithInternalWhitespaceSupport`.
 2. Adds `._()` support (via `addPostfixSupport`) so operators can be chained.
 
-Factory methods: `token`, `anyOf`, `regex`, `fail`, `pass`, `cut`, `ref`, `attempt`, `map`, `sequence`, `choice`, `many`, `optional`.
+Factory methods: `token`, `anyOf`, `regex`, `fail`, `pass`, `cut`, `ref`, `attempt`, `map`, `sequence`, `choice`, `many`, `optional`, `named`.
 
 ### `ParserOperators` namespace
-Stateless operator factories intended for use with the `._()` postfix API. Each returns `(parser) => newParser`. Available: `map`, `optional`, `build`, `omit`, `whitespace`, `withIndices`, `observe`.
+Stateless operator factories intended for use with the `._()` postfix API. Each returns `(parser) => newParser`. Available: `map`, `optional`, `build`, `omit`, `whitespace`, `withIndices`, `observe`, `named`.
 
 ### Postfix operator support (`addPostfixSupport`)
 Wraps any value with a `_` method: `parser._(op)` applies `op(parser)` and wraps the result with the same `_` support, allowing chains like:
@@ -149,8 +164,9 @@ pb.anyOf("0-9")._(O.map(Number.parseInt))._(O.optional())
 
 Re-exports:
 - Everything from `src/builder.ts` (`ParserBuilder`, `addPostfixSupport`)
+- Everything from `src/combinators/NamedParser.ts` (`NamedParser`)
 - Everything from `src/combinators/ParseObserver.ts` (`ParseObserver`, `ParseObserverCallbacks`)
-- Everything from `src/core.ts` (`Parser`, `ParserInput`, `ParserContext`, `ParseResult`, `ParseError`, `StringParserInput`, `parse`, `isParser`, `RefParser`, `CutParser`, `FailParser`, `PassParser`, `ParserType`, `ParserWithInternalWhitespaceSupport`)
+- Everything from `src/core.ts` (`Parser`, `ParserInput`, `ParserContext`, `ParseResult`, `ParseError`, `StringParserInput`, `parse`, `isParser`, `RefParser`, `CutParser`, `FailParser`, `PassParser`, `ParserType`, `ParserWithInternalWhitespaceSupport`, `CompletionEvent`)
 - Everything from `src/operators.ts` (`ParserOperators`)
 - `WhitespaceParser` from `src/parsers/WhitespaceParser.ts`
 
@@ -165,6 +181,11 @@ All parsers carry a phantom `C = unknown` type parameter representing the caller
 3. Call `parse(rootParser, input, false, myCtxInstance)` to run the grammar with a concrete context value.
 
 Context-unaware parsers (`Parser<T, unknown>`) mix freely into any context-typed grammar through TypeScript's bivariant method checking, so primitive parsers from an untyped builder can be used inside a typed one without casts.
+
+To collect **completion events** (for intellisense / autocomplete):
+1. Pass `onCompletion: (e: CompletionEvent<C>) => void` as the 5th argument to `parse()`.
+2. Wrap parsers at meaningful positions with `named(parser, "label")` to annotate the `nameStack` in completion events.
+3. After a failed (or even successful-but-partial) parse, the callback will have been called once per grammar branch that hit EOF. Deduplicate by `nameStack` if desired.
 
 ---
 
