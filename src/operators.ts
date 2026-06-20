@@ -8,7 +8,7 @@ import { Parser, ParseResult, ParserWithInternalWhitespaceSupport } from "./core
 export namespace ParserOperators {
     export function map<S, T>(mapper: (s: S) => T) {
         return <C = unknown>(p: Parser<S, C>) => {
-            return new MapParser(p, mapper);
+            return new MapParser<Parser<S, C>, T, C>(p, mapper);
         }
     }
 
@@ -26,7 +26,7 @@ export namespace ParserOperators {
 
     export function omit() {
         return <C = unknown>(p: Parser<unknown, C>) => {
-            return new MapParser(p, (a) => {});
+            return new MapParser<Parser<unknown, C>, void, C>(p, (a) => {});
         }
     }
 

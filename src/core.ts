@@ -92,7 +92,7 @@ export class ParserContext<C = unknown> {
   constructor(
     private _input: ParserInput,
     private _whitespaceParser: Parser<unknown, C> | null = null,
-    public userContext: C = undefined as unknown as C,
+    public readonly userContext: C = undefined as unknown as C,
   ) {}
 
   parseWhitespace() {
@@ -135,7 +135,7 @@ export namespace ParseResult {
 }
 
 export interface Parser<T, C = unknown> {
-  parse(parserContext: ParserContext<C>): ParseResult<T>;
+  parse: (parserContext: ParserContext<C>) => ParseResult<T>;
 }
 
 export function isParser(p: any): p is Parser<unknown> {
