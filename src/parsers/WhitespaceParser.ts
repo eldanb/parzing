@@ -1,9 +1,9 @@
 import { ParseError, Parser, ParserContext, ParseResult } from "../core";
 
-export class WhitespaceParser implements Parser<void> {
+export class WhitespaceParser<C = unknown> implements Parser<void, C> {
   constructor(private _mandatory: boolean) {}
 
-  parse(parserContext: ParserContext) {
+  parse(parserContext: ParserContext<C>) {
     const input = parserContext.input;
     let c;
     let found = false;

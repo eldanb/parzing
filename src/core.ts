@@ -88,10 +88,11 @@ export class StringParserInput implements ParserInput {
   }
 }
 
-export class ParserContext {
+export class ParserContext<C = unknown> {
   constructor(
     private _input: ParserInput,
-    private _whitespaceParser: Parser<unknown> | null = null,
+    private _whitespaceParser: Parser<unknown, C> | null = null,
+    public userContext: C = undefined as unknown as C,
   ) {}
 
   parseWhitespace() {
@@ -133,41 +134,41 @@ export namespace ParseResult {
   }
 }
 
-export interface Parser<T> {
-  parse(parserContext: ParserContext): ParseResult<T>;
+export interface Parser<T, C = unknown> {
+  parse(parserContext: ParserContext<C>): ParseResult<T>;
 }
 
 export function isParser(p: any): p is Parser<unknown> {
   return "parse" in p;
 }
 
-export class FailParser implements Parser<unknown> {
+export class FailParser<C = unknown> implements Parser<unknown, C> {
   constructor(private _message: string) {}
 
-  parse(parserContext: ParserContext) {
+  parse(parserContext: ParserContext<C>) {
     return ParseResult.failed(
       ParseError.parserRejected(this, parserContext, this._message),
     );
   }
 }
 
-export class PassParser implements Parser<void> {
-  parse(parserContext: ParserContext) {
+export class PassParser<C = unknown> implements Parser<void, C> {
+  parse(parserContext: ParserContext<C>) {
     return ParseResult.voidSuccessful();
   }
 }
 
-export class CutParser implements Parser<void> {
-  parse(parserContext: ParserContext) {
+export class CutParser<C = unknown> implements Parser<void, C> {
+  parse(parserContext: ParserContext<C>) {
     parserContext.cutEncountered = true;
     return ParseResult.voidSuccessful();
   }
 }
 
-export class RefParser<T> implements Parser<T> {
-  constructor(private _parserProvider: () => Parser<T>) {}
+export class RefParser<T, C = unknown> implements Parser<T, C> {
+  constructor(private _parserProvider: () => Parser<T, C>) {}
 
-  parse(parserContext: ParserContext) {
+  parse(parserContext: ParserContext<C>) {
     if (!this._parser) {
       this._parser = this._parserProvider();
     }
@@ -175,24 +176,24 @@ export class RefParser<T> implements Parser<T> {
     return this._parser.parse(parserContext);
   }
 
-  private _parser?: Parser<T>;
+  private _parser?: Parser<T, C>;
 }
 
-export type ParserType<pt> = pt extends Parser<infer T> ? T : never;
+export type ParserType<pt> = pt extends Parser<infer T, any> ? T : never;
 
-export class ParserWithInternalWhitespaceSupport<T> implements Parser<T> {
-  parse(parserContext: ParserContext): ParseResult<T> {
+export class ParserWithInternalWhitespaceSupport<T, C = unknown> implements Parser<T, C> {
+  parse(parserContext: ParserContext<C>): ParseResult<T> {
     throw new Error("Method not implemented");
   }
 
   whitespace(
-    whitespaceParser: Parser<unknown> | null,
-  ): ParserWithInternalWhitespaceSupport<T> {
+    whitespaceParser: Parser<unknown, C> | null,
+  ): ParserWithInternalWhitespaceSupport<T, C> {
     this._whitespace = whitespaceParser;
     return this;
   }
 
-  protected parseWhitespace(parserContext: ParserContext) {
+  protected parseWhitespace(parserContext: ParserContext<C>) {
     if (this._whitespace) {
       return this._whitespace.parse(parserContext);
     } else {
@@ -200,19 +201,20 @@ export class ParserWithInternalWhitespaceSupport<T> implements Parser<T> {
     }
   }
 
-  private _whitespace: Parser<unknown> | null = null;
+  private _whitespace: Parser<unknown, C> | null = null;
 }
 
-export function parse<T>(
-  parser: Parser<T>,
+export function parse<T, C = unknown>(
+  parser: Parser<T, C>,
   input: ParserInput | string,
   allowPartial: boolean = false,
+  userContext?: C,
 ): T {
   if (typeof input === "string") {
     input = new StringParserInput(input);
   }
 
-  let context = new ParserContext(input);
+  let context = new ParserContext<C>(input, null, userContext as C);
   const ret = parser.parse(context);
 
   if (!allowPartial && !input.eof()) {
@@ -233,7 +235,7 @@ export class ParseError {
   constructor(
     input: ParserInput,
     bookmark: ParserInputBookmark | null,
-    parser: Parser<unknown> | null,
+    parser: Parser<unknown, any> | null,
     contentMessage: string,
   ) {
     this.message = contentMessage;
@@ -247,8 +249,8 @@ export class ParseError {
   }
 
   static parserRejected(
-    parser: Parser<unknown>,
-    context: ParserContext,
+    parser: Parser<unknown, any>,
+    context: ParserContext<any>,
     message?: string,
   ) {
     return new ParseError(

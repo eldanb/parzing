@@ -1,11 +1,11 @@
 import { ParseError, Parser, ParserContext, ParseResult } from "../core";
 
-export class RegexParser implements Parser<string> {
+export class RegexParser<C = unknown> implements Parser<string, C> {
   _charBitmap: number[] | null = null;
 
   constructor(private _regex: RegExp) {}
 
-  parse(parserContext: ParserContext): ParseResult<string> {
+  parse(parserContext: ParserContext<C>): ParseResult<string> {
     if (!parserContext.input.readRegex) {
       throw ParseError.parserRejected(
         this,

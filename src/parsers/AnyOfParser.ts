@@ -1,6 +1,6 @@
 import { ParseError, Parser, ParserContext, ParseResult } from "../core";
 
-export class AnyOfParser implements Parser<string> {
+export class AnyOfParser<C = unknown> implements Parser<string, C> {
   _charBitmap: number[] | null;
 
   constructor(
@@ -23,7 +23,7 @@ export class AnyOfParser implements Parser<string> {
     }
   }
 
-  parse(parserContext: ParserContext): ParseResult<string> {
+  parse(parserContext: ParserContext<C>): ParseResult<string> {
     let ret = [];
     let cont = true;
     const input = parserContext.input;

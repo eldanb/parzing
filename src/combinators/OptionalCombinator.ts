@@ -1,9 +1,9 @@
 import { Parser, ParserContext, ParseResult } from "../core";
 
-export class OptionalCombinator<T> implements Parser<T | null> {
-  constructor(private _parser: Parser<T>) {}
+export class OptionalCombinator<T, C = unknown> implements Parser<T | null, C> {
+  constructor(private _parser: Parser<T, C>) {}
 
-  parse(parserContext: ParserContext): ParseResult<T | null> {
+  parse(parserContext: ParserContext<C>): ParseResult<T | null> {
     const input = parserContext.input;
 
     const bm = input.getBookmark();

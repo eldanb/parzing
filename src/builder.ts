@@ -30,13 +30,13 @@ export function addPostfixSupport<T>(who: T): WithPostfixSupport<T> {
   return ret;
 }
 
-export class ParserBuilder {
-  constructor(whitespaceParser: Parser<unknown> | null = null) {
+export class ParserBuilder<C = unknown> {
+  constructor(whitespaceParser: Parser<unknown, C> | null = null) {
     this._ws = whitespaceParser;
   }
 
-  postProcessParser<T extends Parser<any>>(parser: T): WithPostfixSupport<T> {
-    let p: Parser<ParserType<T>> = parser;
+  postProcessParser<T extends Parser<any, C>>(parser: T): WithPostfixSupport<T> {
+    let p: Parser<ParserType<T>, C> = parser;
     if (p instanceof ParserWithInternalWhitespaceSupport && this._ws) {
       p = p.whitespace(this._ws);
     }
@@ -44,69 +44,69 @@ export class ParserBuilder {
     return addPostfixSupport(<T>p);
   }
 
-  parser<T extends Parser<any>>(p: T) {
+  parser<T extends Parser<any, C>>(p: T) {
     return this.postProcessParser(p);
   }
 
   token(tok: string) {
-    return this.postProcessParser(new TokenParser(tok));
+    return this.postProcessParser(new TokenParser<C>(tok));
   }
 
   anyOf(alts: string, minLen: number | null = 1, maxLen: number | null = null) {
-    return this.postProcessParser(new AnyOfParser(alts, minLen, maxLen));
+    return this.postProcessParser(new AnyOfParser<C>(alts, minLen, maxLen));
   }
 
   regex(re: RegExp) {
-    return this.postProcessParser(new RegexParser(re));
+    return this.postProcessParser(new RegexParser<C>(re));
   }
 
   fail(message: string) {
-    return this.postProcessParser(new FailParser(message));
+    return this.postProcessParser(new FailParser<C>(message));
   }
 
   pass() {
-    return this.postProcessParser(new PassParser());
+    return this.postProcessParser(new PassParser<C>());
   }
 
   cut() {
-    return this.postProcessParser(new CutParser());
+    return this.postProcessParser(new CutParser<C>());
   }
 
-  ref<T>(f: () => Parser<T>) {
-    return this.postProcessParser(new RefParser(f));
+  ref<T>(f: () => Parser<T, C>) {
+    return this.postProcessParser(new RefParser<T, C>(f));
   }
 
-  attempt<T>(p: Parser<T>) {
-    return this.postProcessParser(new AttemptParser(p));
+  attempt<T>(p: Parser<T, C>) {
+    return this.postProcessParser(new AttemptParser<T, C>(p));
   }
 
-  map<V extends Parser<unknown>, T>(
+  map<V extends Parser<unknown, C>, T>(
     parser: V,
     mapper: (i: ParserType<V>) => T,
   ) {
-    return this.postProcessParser(new MapParser(parser, mapper));
+    return this.postProcessParser(new MapParser<V, T, C>(parser, mapper));
   }
 
-  sequence<TS extends Parser<unknown>[]>(...s: TS) {
-    return this.postProcessParser(new SequenceCombinator<TS>(s));
+  sequence<TS extends Parser<unknown, C>[]>(...s: TS) {
+    return this.postProcessParser(new SequenceCombinator<TS, C>(s));
   }
 
-  choice<T extends Parser<any>[]>(...parsers: T) {
-    return new ChooseCombinator<T>(parsers);
+  choice<T extends Parser<any, C>[]>(...parsers: T) {
+    return new ChooseCombinator<T, C>(parsers);
   }
 
   many<T>(
-    parser: Parser<T>,
-    sep?: Parser<unknown>,
+    parser: Parser<T, C>,
+    sep?: Parser<unknown, C>,
     min: number = 0,
     max: number = 0,
   ) {
-    return this.postProcessParser(new ManyCombinator<T>(parser, sep, min, max));
+    return this.postProcessParser(new ManyCombinator<T, C>(parser, sep, min, max));
   }
 
-  optional<T>(parser: Parser<T>) {
-    return this.postProcessParser(new OptionalCombinator<T>(parser));
+  optional<T>(parser: Parser<T, C>) {
+    return this.postProcessParser(new OptionalCombinator<T, C>(parser));
   }
 
-  private _ws: Parser<unknown> | null;
+  private _ws: Parser<unknown, C> | null;
 }

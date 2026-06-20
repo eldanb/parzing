@@ -1,6 +1,6 @@
 # Parzing — Architecture
 
-> This file is kept up to date by Claude Code after every working session. Last updated: 2026-06-20.
+> This file is kept up to date by Claude Code after every working session. Last updated: 2026-06-20 (parsing context + observe operator).
 
 ## Purpose
 
@@ -37,14 +37,14 @@ Parzing is a **parser combinator library** for TypeScript. It provides typed bui
 
 ## Core Abstractions (`src/core.ts`)
 
-### `Parser<T>`
+### `Parser<T, C = unknown>`
 The fundamental interface. Every parser — primitive or composite — implements:
 ```ts
-interface Parser<T> {
-  parse(parserContext: ParserContext): ParseResult<T>;
+interface Parser<T, C = unknown> {
+  parse(parserContext: ParserContext<C>): ParseResult<T>;
 }
 ```
-`T` is the result type. Combinators propagate and combine these types statically.
+`T` is the result type. `C` is the **user context type** (defaults to `unknown` for backward compatibility). Combinators propagate and combine both types statically. Parsers with `C = unknown` can be used inside any context-typed grammar through TypeScript's bivariant method checking.
 
 ### `ParserInput` / `StringParserInput`
 An abstraction over the input stream. Supports:
@@ -56,10 +56,11 @@ An abstraction over the input stream. Supports:
 
 `StringParserInput` is the default implementation; custom inputs can implement `ParserInput` directly.
 
-### `ParserContext`
+### `ParserContext<C = unknown>`
 Wraps a `ParserInput` and carries cross-parser state:
 - `input` — the stream being parsed
 - `cutEncountered` — a boolean flag set by `CutParser`; suppresses backtracking in combinators
+- `userContext: C` — caller-supplied context object, passed to `parse()` and threaded through the entire parse; accessible in `ParseObserver` callbacks
 
 ### `ParseResult<T>`
 A discriminated union: `{ successful: true; result: T }` or `{ successful: false; parseError: ParseError }`. Returned by every `parse()` call. The top-level `parse()` function unwraps this and throws on failure.
@@ -70,11 +71,11 @@ Carries a human-readable `message` with position info (`at <offset> ('<preview>'
 ### Special parsers in core
 | Class | Behaviour |
 |---|---|
-| `FailParser` | Always fails with a given message |
-| `PassParser` | Always succeeds, returns `void` |
-| `CutParser` | Sets `ParserContext.cutEncountered = true`; used to prevent backtracking |
-| `RefParser<T>` | Lazily resolves to a parser returned by a callback; enables recursive grammars |
-| `ParserWithInternalWhitespaceSupport<T>` | Base class for combinators that skip whitespace between sub-parsers; exposes `.whitespace(ws)` |
+| `FailParser<C>` | Always fails with a given message |
+| `PassParser<C>` | Always succeeds, returns `void` |
+| `CutParser<C>` | Sets `ParserContext.cutEncountered = true`; used to prevent backtracking |
+| `RefParser<T, C>` | Lazily resolves to a parser returned by a callback; enables recursive grammars |
+| `ParserWithInternalWhitespaceSupport<T, C>` | Base class for combinators that skip whitespace between sub-parsers; exposes `.whitespace(ws)` |
 
 ---
 
@@ -116,22 +117,25 @@ Spreads the array result of a parser as constructor arguments, returning an inst
 ### `AttemptParser<T>` — `parser.attempt(parser)`
 Runs the underlying parser and resets `cutEncountered` to `false` afterward. Lets a parser that internally uses cuts be embedded in a context where those cuts should not propagate outward.
 
-### `ParserWithIndices<T>` — `ParserOperators.withIndices()`
+### `ParserWithIndices<T, C>` — `ParserOperators.withIndices()`
 Wraps a parser and returns `{ result, start, length }` — the original result alongside the start offset and consumed-character count. Uses `ParserInput.tell()`.
+
+### `ParseObserver<T, C>` — `ParserOperators.observe(callbacks)`
+Wraps a parser with optional `enter` and `leave` callbacks that receive the typed user context `C`. `enter(ctx)` is called before the inner parser runs; `leave(ctx, result)` is called after, regardless of success or failure, receiving the full `ParseResult<T>`. Neither callback can affect the parse result — they are pure side effects for enriching the context object. Does not touch `cutEncountered`.
 
 ---
 
 ## Builder & Operators (`src/builder.ts`, `src/operators.ts`)
 
-### `ParserBuilder`
-The recommended way to construct parsers. Holds an optional default whitespace parser (`_ws`). Each factory method calls `postProcessParser`, which:
+### `ParserBuilder<C = unknown>`
+The recommended way to construct parsers. Generic on the user context type `C`; defaults to `unknown` for backward compatibility. All factory methods return parsers typed as `Parser<result, C>`. Holds an optional default whitespace parser (`_ws`). Each factory method calls `postProcessParser`, which:
 1. Applies `_ws` to parsers that extend `ParserWithInternalWhitespaceSupport`.
 2. Adds `._()` support (via `addPostfixSupport`) so operators can be chained.
 
 Factory methods: `token`, `anyOf`, `regex`, `fail`, `pass`, `cut`, `ref`, `attempt`, `map`, `sequence`, `choice`, `many`, `optional`.
 
 ### `ParserOperators` namespace
-Stateless operator factories intended for use with the `._()` postfix API. Each returns `(parser) => newParser`. Available: `map`, `optional`, `build`, `omit`, `whitespace`, `withIndices`.
+Stateless operator factories intended for use with the `._()` postfix API. Each returns `(parser) => newParser`. Available: `map`, `optional`, `build`, `omit`, `whitespace`, `withIndices`, `observe`.
 
 ### Postfix operator support (`addPostfixSupport`)
 Wraps any value with a `_` method: `parser._(op)` applies `op(parser)` and wraps the result with the same `_` support, allowing chains like:
@@ -145,11 +149,22 @@ pb.anyOf("0-9")._(O.map(Number.parseInt))._(O.optional())
 
 Re-exports:
 - Everything from `src/builder.ts` (`ParserBuilder`, `addPostfixSupport`)
+- Everything from `src/combinators/ParseObserver.ts` (`ParseObserver`, `ParseObserverCallbacks`)
 - Everything from `src/core.ts` (`Parser`, `ParserInput`, `ParserContext`, `ParseResult`, `ParseError`, `StringParserInput`, `parse`, `isParser`, `RefParser`, `CutParser`, `FailParser`, `PassParser`, `ParserType`, `ParserWithInternalWhitespaceSupport`)
 - Everything from `src/operators.ts` (`ParserOperators`)
 - `WhitespaceParser` from `src/parsers/WhitespaceParser.ts`
 
-Note: the primitive parsers (`TokenParser`, `AnyOfParser`, `RegexParser`) and combinators are **not individually re-exported**. Users access them through `ParserBuilder` factory methods.
+Note: the primitive parsers (`TokenParser`, `AnyOfParser`, `RegexParser`) and most combinators are **not individually re-exported**. Users access them through `ParserBuilder` factory methods and `ParserOperators`.
+
+## User Context (`C` type parameter)
+
+All parsers carry a phantom `C = unknown` type parameter representing the caller-supplied context type. To use a typed context:
+
+1. Instantiate `new ParserBuilder<MyCtx>()` — all factory methods will return `Parser<result, MyCtx>`.
+2. Wrap specific parsers with `ParserOperators.observe<MyCtx, ResultType>({ enter?, leave? })` to inspect or mutate the context at parse points.
+3. Call `parse(rootParser, input, false, myCtxInstance)` to run the grammar with a concrete context value.
+
+Context-unaware parsers (`Parser<T, unknown>`) mix freely into any context-typed grammar through TypeScript's bivariant method checking, so primitive parsers from an untyped builder can be used inside a typed one without casts.
 
 ---
 

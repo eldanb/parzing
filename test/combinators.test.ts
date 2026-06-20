@@ -1,6 +1,7 @@
 import assert from 'assert'
 import { ParserBuilder } from '../src/builder';
 import { parse } from '../src/core';
+import { ParserOperators } from '../src/operators';
 import { WhitespaceParser } from '../src/parsers/WhitespaceParser';
 
 const P = new ParserBuilder();
@@ -319,10 +320,104 @@ describe('Optional combinator', () => {
                 P.optional(P.sequence(P.token('tok'), P.cut(), P.token('en2'))),
                 P.token('token3')
             );
-    
-            parse(choiceParser, 'token1token3');    
+
+            parse(choiceParser, 'token1token3');
         })
     })
 
+})
+
+interface TestContext {
+    events: string[];
+}
+
+describe('ParseObserver / observe operator', () => {
+    it('should invoke enter callback before parsing', () => {
+        const ctx: TestContext = { events: [] };
+        const P2 = new ParserBuilder<TestContext>();
+        const parser = P2.token('hello')._(
+            ParserOperators.observe<TestContext, string>({
+                enter: (c) => c.events.push('enter'),
+            })
+        );
+        parse(parser, 'hello', false, ctx);
+        assert.deepEqual(ctx.events, ['enter']);
+    })
+
+    it('should invoke leave callback with successful result after parsing', () => {
+        const ctx: TestContext = { events: [] };
+        const P2 = new ParserBuilder<TestContext>();
+        const parser = P2.token('hello')._(
+            ParserOperators.observe<TestContext, string>({
+                leave: (c, result) => {
+                    c.events.push(result.successful ? `leave:${result.result}` : 'leave:fail');
+                },
+            })
+        );
+        parse(parser, 'hello', false, ctx);
+        assert.deepEqual(ctx.events, ['leave:hello']);
+    })
+
+    it('should invoke leave callback with failed result on parse failure', () => {
+        const ctx: TestContext = { events: [] };
+        const P2 = new ParserBuilder<TestContext>();
+        const parser = P2.choice(
+            P2.token('hello')._(
+                ParserOperators.observe<TestContext, string>({
+                    leave: (c, result) => {
+                        c.events.push(result.successful ? 'leave:ok' : 'leave:fail');
+                    },
+                })
+            ),
+            P2.token('world'),
+        );
+        parse(parser, 'world', false, ctx);
+        assert.deepEqual(ctx.events, ['leave:fail']);
+    })
+
+    it('should invoke both enter and leave callbacks', () => {
+        const ctx: TestContext = { events: [] };
+        const P2 = new ParserBuilder<TestContext>();
+        const parser = P2.token('hello')._(
+            ParserOperators.observe<TestContext, string>({
+                enter: (c) => c.events.push('enter'),
+                leave: (c, result) => c.events.push(result.successful ? 'leave:ok' : 'leave:fail'),
+            })
+        );
+        parse(parser, 'hello', false, ctx);
+        assert.deepEqual(ctx.events, ['enter', 'leave:ok']);
+    })
+
+    it('should pass userContext through to nested parsers', () => {
+        const ctx: TestContext = { events: [] };
+        const P2 = new ParserBuilder<TestContext>();
+        const inner = P2.token('b')._(
+            ParserOperators.observe<TestContext, string>({
+                enter: (c) => c.events.push('inner-enter'),
+            })
+        );
+        const outer = P2.sequence(
+            P2.token('a')._(
+                ParserOperators.observe<TestContext, string>({
+                    enter: (c) => c.events.push('outer-enter'),
+                })
+            ),
+            inner,
+        );
+        parse(outer, 'ab', false, ctx);
+        assert.deepEqual(ctx.events, ['outer-enter', 'inner-enter']);
+    })
+
+    it('should work without context when no userContext is passed', () => {
+        const P2 = new ParserBuilder();
+        let called = false;
+        const parser = P2.token('hi')._(
+            ParserOperators.observe({
+                enter: () => { called = true; },
+            })
+        );
+        parse(parser, 'hi');
+        assert.ok(called);
+    })
 })
 
