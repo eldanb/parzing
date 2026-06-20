@@ -91,7 +91,7 @@ export class StringParserInput implements ParserInput {
 export class ParserContext<C = unknown> {
   constructor(
     private _input: ParserInput,
-    private _whitespaceParser: Parser<unknown, C> | null = null,
+    private _whitespaceParser: Parser<unknown, any> | null = null,
     public readonly userContext: C = undefined as unknown as C,
   ) {}
 
@@ -181,13 +181,16 @@ export class RefParser<T, C = unknown> implements Parser<T, C> {
 
 export type ParserType<pt> = pt extends Parser<infer T, any> ? T : never;
 
-export class ParserWithInternalWhitespaceSupport<T, C = unknown> implements Parser<T, C> {
+export class ParserWithInternalWhitespaceSupport<
+  T,
+  C = unknown,
+> implements Parser<T, C> {
   parse(parserContext: ParserContext<C>): ParseResult<T> {
     throw new Error("Method not implemented");
   }
 
   whitespace(
-    whitespaceParser: Parser<unknown, C> | null,
+    whitespaceParser: Parser<unknown, any> | null,
   ): ParserWithInternalWhitespaceSupport<T, C> {
     this._whitespace = whitespaceParser;
     return this;
@@ -201,7 +204,7 @@ export class ParserWithInternalWhitespaceSupport<T, C = unknown> implements Pars
     }
   }
 
-  private _whitespace: Parser<unknown, C> | null = null;
+  private _whitespace: Parser<unknown, any> | null = null;
 }
 
 export function parse<T, C = unknown>(
