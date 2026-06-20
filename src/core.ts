@@ -133,10 +133,13 @@ export class ParserContext<C = unknown> {
   }
 
   onIncompleteParseOption(): void {
-    this._onCompletion?.({ userContext: this.userContext, nameStack: this._nameStack.slice() });
+    this._onCompletion?.({
+      userContext: this.userContext,
+      nameStack: this._nameStack.slice(),
+    });
   }
 
-  public c utEncountered: boolean = false;
+  public cutEncountered: boolean = false;
 }
 
 export type ParseResult<T> =
@@ -249,11 +252,21 @@ export function parse<T, C = unknown>(
     input = new StringParserInput(input);
   }
 
-  let context = new ParserContext<C>(input, null, userContext as C, onCompletion);
+  let context = new ParserContext<C>(
+    input,
+    null,
+    userContext as C,
+    onCompletion,
+  );
   const result = ParseResult.resultOrThrow(parser.parse(context));
 
   if (!allowPartial && !input.eof()) {
-    throw new ParseError(input, input.getBookmark(), null, `End of input expected`);
+    throw new ParseError(
+      input,
+      input.getBookmark(),
+      null,
+      `End of input expected`,
+    );
   }
 
   return result;
@@ -273,7 +286,7 @@ export class ParseError {
     this.nameStack = nameStack;
     this.message = contentMessage;
     if (nameStack.length > 0) {
-      this.message = `[${nameStack.join(' > ')}] ${this.message}`;
+      this.message = `[${nameStack.join(" > ")}] ${this.message}`;
     }
     if (bookmark) {
       this.message = `${this.message} at ${bookmark} ('${input.peek(5)}')`;
