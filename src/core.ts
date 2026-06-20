@@ -136,7 +136,7 @@ export class ParserContext<C = unknown> {
     this._onCompletion?.({ userContext: this.userContext, nameStack: this._nameStack.slice() });
   }
 
-  public cutEncountered: boolean = false;
+  public c utEncountered: boolean = false;
 }
 
 export type ParseResult<T> =
