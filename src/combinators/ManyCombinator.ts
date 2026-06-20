@@ -6,19 +6,20 @@ import {
   ParserWithInternalWhitespaceSupport,
 } from "../core";
 
-export class ManyCombinator<T> extends ParserWithInternalWhitespaceSupport<
-  T[]
+export class ManyCombinator<T, C = unknown> extends ParserWithInternalWhitespaceSupport<
+  T[],
+  C
 > {
   constructor(
-    private _parser: Parser<T>,
-    private _sepParser?: Parser<unknown>,
+    private _parser: Parser<T, C>,
+    private _sepParser?: Parser<unknown, C>,
     private _min: number = 0,
     private _max: number = 0,
   ) {
     super();
   }
 
-  parse(parserContext: ParserContext): ParseResult<T[]> {
+  parse(parserContext: ParserContext<C>): ParseResult<T[]> {
     const output: T[] = [];
 
     const pce = parserContext.cutEncountered;
@@ -34,7 +35,7 @@ export class ManyCombinator<T> extends ParserWithInternalWhitespaceSupport<
           output.push(psr.result);
         } else {
           if (mustParseElement || parserContext.cutEncountered) {
-            return <any>psr;
+            return ParseResult.failed(psr.parseError);
           } else {
             parserContext.input.seekToBookmark(bm);
             break;
@@ -47,7 +48,7 @@ export class ManyCombinator<T> extends ParserWithInternalWhitespaceSupport<
         parserContext.cutEncountered = false;
         let wpr = this.parseWhitespace(parserContext);
         if (!wpr.successful) {
-          return <any>wpr;
+          return ParseResult.failed(wpr.parseError);
         }
 
         // Attempt parse sep
@@ -62,11 +63,11 @@ export class ManyCombinator<T> extends ParserWithInternalWhitespaceSupport<
             parserContext.cutEncountered = false;
             wpr = this.parseWhitespace(parserContext);
             if (!wpr.successful) {
-              return <any>wpr;
+              return ParseResult.failed(wpr.parseError);
             }
           } else {
             if (parserContext.cutEncountered) {
-              return <any>sepr;
+              return ParseResult.failed(sepr.parseError);
             } else {
               parserContext.input.seekToBookmark(bm);
               break;

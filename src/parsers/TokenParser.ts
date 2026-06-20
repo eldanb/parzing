@@ -1,9 +1,9 @@
 import { ParseError, Parser, ParserContext, ParseResult } from "../core";
 
-export class TokenParser implements Parser<string> {
+export class TokenParser<C = unknown> implements Parser<string, C> {
   constructor(private _token: String) {}
 
-  parse(parserContext: ParserContext): ParseResult<string> {
+  parse(parserContext: ParserContext<C>): ParseResult<string> {
     try {
       const str = parserContext.input.read(this._token.length);
       if (str !== this._token) {
