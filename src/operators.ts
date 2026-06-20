@@ -1,5 +1,6 @@
 import { AstBuilder } from "./combinators/AstBuilder";
 import { MapParser } from "./combinators/MapParser";
+import { NamedParser } from "./combinators/NamedParser";
 import { OptionalCombinator } from "./combinators/OptionalCombinator";
 import { ParseObserver, ParseObserverCallbacks } from "./combinators/ParseObserver";
 import { ParserWithIndices } from "./combinators/ParserWithIndices";
@@ -45,6 +46,12 @@ export namespace ParserOperators {
     export function observe<C, T>(callbacks: ParseObserverCallbacks<T, C>) {
         return (p: Parser<T, C>) => {
             return new ParseObserver(p, callbacks);
+        }
+    }
+
+    export function named<T, C = unknown>(name: string) {
+        return (p: Parser<T, C>) => {
+            return new NamedParser(p, name);
         }
     }
 }

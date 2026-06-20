@@ -14,6 +14,10 @@ export class RegexParser<C = unknown> implements Parser<string, C> {
       );
     }
 
+    if (parserContext.input.eof()) {
+      parserContext.onIncompleteParseOption();
+    }
+
     const reResult = parserContext.input.readRegex(this._regex);
     if (!reResult) {
       return ParseResult.failed(

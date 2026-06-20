@@ -329,6 +329,68 @@ interface TestContext {
   events: string[];
 }
 
+describe("NamedParser / named operator / completion", () => {
+  it("should push name onto error's nameStack", () => {
+    const p = P.named(P.token("hello"), "greeting");
+    try {
+      parse(p, "world");
+      assert.fail("expected error");
+    } catch (e: any) {
+      assert.deepEqual(e.nameStack, ["greeting"]);
+    }
+  });
+
+  it("should nest name stacks in error messages", () => {
+    const p = P.named(P.named(P.token("hi"), "inner"), "outer");
+    try {
+      parse(p, "bye");
+      assert.fail("expected error");
+    } catch (e: any) {
+      assert.deepEqual(e.nameStack, ["outer", "inner"]);
+    }
+  });
+
+  it("should pop name after success so subsequent errors don't carry it", () => {
+    const p = P.sequence(P.named(P.token("a"), "first"), P.token("b"));
+    try {
+      parse(p, "ax");
+      assert.fail("expected error");
+    } catch (e: any) {
+      assert.deepEqual(e.nameStack, []);
+    }
+  });
+
+  it("should collect token completion events on empty input", () => {
+    const completions: string[][] = [];
+    const p = P.choice(P.token("if"), P.token("while"), P.token("for"));
+    try { parse(p, "", false, undefined, e => completions.push([...e.nameStack])); } catch {}
+    assert.equal(completions.length, 3);
+  });
+
+  it("should include nameStack in completion events", () => {
+    const completions: string[][] = [];
+    const p = P.named(P.choice(P.token("if"), P.token("while")), "keyword");
+    try { parse(p, "", false, undefined, e => completions.push([...e.nameStack])); } catch {}
+    assert.ok(completions.length === 2 && completions.every(ns => ns[0] === "keyword"));
+  });
+
+  it("should report partial prefix completion when no full match exists", () => {
+    const hits: number[] = [];
+    const p = P.choice(P.token("gout"), P.token("gother"));
+    try { parse(p, "go", false, undefined, () => hits.push(1)); } catch {}
+    assert.equal(hits.length, 2);
+  });
+
+  it("should pass userContext in completion events", () => {
+    const ctx = { events: [] as string[] };
+    const P2 = new ParserBuilder<typeof ctx>();
+    const p = P2.named(P2.choice(P2.token("if"), P2.token("while")), "kw");
+    const received: (typeof ctx)[] = [];
+    try { parse(p, "", false, ctx, e => received.push(e.userContext as typeof ctx)); } catch {}
+    assert.ok(received.length === 2 && received.every(c => c === ctx));
+  });
+});
+
 describe("ParseObserver / observe operator", () => {
   it("should invoke enter callback before parsing", () => {
     const ctx: TestContext = { events: [] };

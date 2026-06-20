@@ -47,6 +47,9 @@ export class AnyOfParser<C = unknown> implements Parser<string, C> {
       (this._maxLen != null && ret.length > this._maxLen) ||
       (this._minLen != null && ret.length < this._minLen)
     ) {
+      if (input.eof()) {
+        parserContext.onIncompleteParseOption();
+      }
       return ParseResult.failed(
         ParseError.parserRejected(
           this,

@@ -2,6 +2,7 @@ import { AttemptParser } from "./combinators/AttemptParser";
 import { ChooseCombinator } from "./combinators/ChooseCombinator";
 import { ManyCombinator } from "./combinators/ManyCombinator";
 import { MapParser } from "./combinators/MapParser";
+import { NamedParser } from "./combinators/NamedParser";
 import { OptionalCombinator } from "./combinators/OptionalCombinator";
 import { SequenceCombinator } from "./combinators/SequenceCombinator";
 import {
@@ -106,6 +107,10 @@ export class ParserBuilder<C = unknown> {
 
   optional<T>(parser: Parser<T, C>) {
     return this.postProcessParser(new OptionalCombinator<T, C>(parser));
+  }
+
+  named<T>(parser: Parser<T, C>, name: string) {
+    return this.postProcessParser(new NamedParser<T, C>(parser, name));
   }
 
   private _ws: Parser<unknown, C> | null;
