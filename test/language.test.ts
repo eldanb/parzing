@@ -188,6 +188,17 @@ describe("Program parser", () => {
     parse(program, "<< 123 456 REPEAT 23 22 UNTIL 11  END >>");
   });
 
+  it("should support frames and local stores", () => {
+    const r: any = parse(program, "<< -> ab cd << x= 1 >> >>");
+    const frame = r._statements[0];
+    assert.strictEqual(frame.nodeType, "frame");
+    assert.deepStrictEqual(frame._capturedVars, ["ab", "cd"]);
+    assert.deepStrictEqual(
+      frame._block._statements.map((s: Node) => s.nodeType),
+      ["localStore", "literal"],
+    );
+  });
+
   it("should support fail on missing END", () => {
     assert.throws(() => {
       parse(program, "<< 123 456 IF 23 22 THEN 11 >>  ");

@@ -1,7 +1,8 @@
 import assert from "assert";
 import "mocha";
 import { ParserBuilder } from "../src/builder";
-import { parse } from "../src/core";
+import { MapParser } from "../src/combinators/MapParser";
+import { parse, Parser, ParserContextType } from "../src/core";
 import { ParserOperators } from "../src/operators";
 import { WhitespaceParser } from "../src/parsers/WhitespaceParser";
 
@@ -483,5 +484,32 @@ describe("ParseObserver / observe operator", () => {
     );
     parse(parser, "hi");
     assert.ok(called);
+  });
+});
+
+describe("Typing and postfix support", () => {
+  it("should keep postfix support after whitespace()", () => {
+    const p = P.sequence(P.token("a"), P.token("b"))
+      .whitespace(new WhitespaceParser(true))
+      ._(ParserOperators.map(([a, b]) => a + b));
+    assert.strictEqual(parse(p, "a  b"), "ab");
+  });
+
+  it("should add postfix support to choice()", () => {
+    const p = P.choice(P.token("a"), P.token("b"))._(
+      ParserOperators.map((s) => s.toUpperCase()),
+    );
+    assert.strictEqual(parse(p, "b"), "B");
+  });
+
+  it("should infer MapParser's context type from its input (compile-time)", () => {
+    const PC = new ParserBuilder<{ x: number }>();
+    const m = new MapParser(PC.token("a"), (s) => s.length);
+    const ctxTyped: Parser<number, { x: number }> = m;
+    const ctx: ParserContextType<typeof m> = { x: 1 };
+    // @ts-expect-error a mismatched context type is rejected
+    const wrong: Parser<number, { y: string }> = m;
+    assert.strictEqual(parse(m, "a", false, ctx), 1);
+    assert.ok(ctxTyped && wrong);
   });
 });

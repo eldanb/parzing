@@ -1,6 +1,6 @@
 # Parzing — Architecture
 
-> This file is kept up to date by Claude Code after every working session. Last updated: 2026-06-20 (parsing context, observe operator, named parser + completion).
+> This file is kept up to date by Claude Code after every working session. Last updated: 2026-10-02 (whitespace() returns this, ParserContextType, MapParser context inference, choice postfix support).
 
 ## Purpose
 
@@ -87,7 +87,9 @@ Fired by `ParserContext.onIncompleteParseOption()` when a leaf parser encounters
 | `PassParser<C>` | Always succeeds, returns `void` |
 | `CutParser<C>` | Sets `ParserContext.cutEncountered = true`; used to prevent backtracking |
 | `RefParser<T, C>` | Lazily resolves to a parser returned by a callback; enables recursive grammars |
-| `ParserWithInternalWhitespaceSupport<T, C>` | Base class for combinators that skip whitespace between sub-parsers; exposes `.whitespace(ws)` |
+| `ParserWithInternalWhitespaceSupport<T, C>` | Base class for combinators that skip whitespace between sub-parsers; exposes `.whitespace(ws)` (returns `this`, so postfix support survives the call) |
+
+`ParserType<P>` and `ParserContextType<P>` extract the result and context types of a parser type.
 
 ---
 
@@ -120,8 +122,8 @@ Greedy repetition. Parses as many occurrences as possible, optionally separated 
 ### `OptionalCombinator<T>` — `parser.optional(parser)`
 Wraps a parser: on success returns the result; on failure (without a cut) backtracks and returns `null`. Cut-safe: saves and restores `cutEncountered`.
 
-### `MapParser<V, T>` — `parser.map(parser, fn)` / `ParserOperators.map(fn)`
-Transforms the result of an underlying parser with a mapping function. Pass-through on failure.
+### `MapParser<V, T, C>` — `parser.map(parser, fn)` / `ParserOperators.map(fn)`
+Transforms the result of an underlying parser with a mapping function. Pass-through on failure. `C` defaults to `ParserContextType<V>`, so the context type is inferred from a concretely-typed input parser.
 
 ### `AstBuilder<Args, Ctor>` — `ParserOperators.build(Ctor)`
 Spreads the array result of a parser as constructor arguments, returning an instance of `Ctor`. Intended to be used with `SequenceCombinator` + `ParserOperators.omit` to build typed AST nodes.
@@ -166,7 +168,7 @@ Re-exports:
 - Everything from `src/builder.ts` (`ParserBuilder`, `addPostfixSupport`)
 - Everything from `src/combinators/NamedParser.ts` (`NamedParser`)
 - Everything from `src/combinators/ParseObserver.ts` (`ParseObserver`, `ParseObserverCallbacks`)
-- Everything from `src/core.ts` (`Parser`, `ParserInput`, `ParserContext`, `ParseResult`, `ParseError`, `StringParserInput`, `parse`, `isParser`, `RefParser`, `CutParser`, `FailParser`, `PassParser`, `ParserType`, `ParserWithInternalWhitespaceSupport`, `CompletionEvent`)
+- Everything from `src/core.ts` (`Parser`, `ParserInput`, `ParserContext`, `ParseResult`, `ParseError`, `StringParserInput`, `parse`, `isParser`, `RefParser`, `CutParser`, `FailParser`, `PassParser`, `ParserType`, `ParserContextType`, `ParserWithInternalWhitespaceSupport`, `CompletionEvent`)
 - Everything from `src/operators.ts` (`ParserOperators`)
 - `WhitespaceParser` from `src/parsers/WhitespaceParser.ts`
 
