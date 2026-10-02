@@ -214,6 +214,7 @@ export class RefParser<T, C = unknown> implements Parser<T, C> {
 }
 
 export type ParserType<pt> = pt extends Parser<infer T, any> ? T : never;
+export type ParserContextType<pt> = pt extends Parser<any, infer C> ? C : never;
 
 export class ParserWithInternalWhitespaceSupport<
   T,
@@ -223,9 +224,7 @@ export class ParserWithInternalWhitespaceSupport<
     throw new Error("Method not implemented");
   }
 
-  whitespace(
-    whitespaceParser: Parser<unknown, any> | null,
-  ): ParserWithInternalWhitespaceSupport<T, C> {
+  whitespace(whitespaceParser: Parser<unknown, any> | null): this {
     this._whitespace = whitespaceParser;
     return this;
   }

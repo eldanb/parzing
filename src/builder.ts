@@ -93,7 +93,7 @@ export class ParserBuilder<C = unknown> {
   }
 
   choice<T extends Parser<any, C>[]>(...parsers: T) {
-    return new ChooseCombinator<T, C>(parsers);
+    return this.postProcessParser(new ChooseCombinator<T, C>(parsers));
   }
 
   many<T>(
