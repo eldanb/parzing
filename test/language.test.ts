@@ -1,16 +1,16 @@
 import assert from "assert";
 import "mocha";
 import { ParserBuilder } from "../src/builder";
-import { parse, Parser, ParserContext, StringParserInput } from "../src/core";
-import { ParserOperators } from "../src/operators";
+import { parse, Parser } from "../src/core";
 import { WhitespaceParser } from "../src/parsers/WhitespaceParser";
+import { StandardOperators } from "../src/standardOperators";
 
 abstract class Node {
   abstract readonly nodeType: string;
 }
 
 class Block extends Node {
-  constructor(private _statements: Node[]) {
+  constructor(public statements: Node[]) {
     super();
   }
 
@@ -19,9 +19,9 @@ class Block extends Node {
 
 class IfThenElseStatement extends Node {
   constructor(
-    private _conditionBlock: Block,
-    private _thenBlock: Block,
-    private _elseBlock: Block | null,
+    public conditionBlock: Block,
+    public thenBlock: Block,
+    public elseBlock: Block | null,
   ) {
     super();
   }
@@ -31,8 +31,8 @@ class IfThenElseStatement extends Node {
 
 class WhileStatement extends Node {
   constructor(
-    private _conditionBlock: Block,
-    private _body: Block,
+    public conditionBlock: Block,
+    public body: Block,
   ) {
     super();
   }
@@ -42,8 +42,8 @@ class WhileStatement extends Node {
 
 class RepeatStatement extends Node {
   constructor(
-    private _conditionBlock: Block,
-    private _body: Block,
+    public conditionBlock: Block,
+    public body: Block,
   ) {
     super();
   }
@@ -52,7 +52,7 @@ class RepeatStatement extends Node {
 }
 
 class ObjectLiteral extends Node {
-  constructor(private _content: string) {
+  constructor(public content: string) {
     super();
   }
 
@@ -61,8 +61,8 @@ class ObjectLiteral extends Node {
 
 class FrameInvokeNode extends Node {
   constructor(
-    private _capturedVars: string[],
-    private _block: Block,
+    public capturedVars: string[],
+    public block: Block,
   ) {
     super();
   }
@@ -71,73 +71,68 @@ class FrameInvokeNode extends Node {
 }
 
 class LocalStoreNode extends Node {
-  constructor(private _var: string) {
+  constructor(public variable: string) {
     super();
   }
 
   nodeType = "localStore";
 }
 
-const P = new ParserBuilder(new WhitespaceParser(false));
-
-import O = ParserOperators;
+const P = new ParserBuilder(new WhitespaceParser(false)).withExtension(
+  StandardOperators,
+);
 
 const tok_start_program = P.token("<<");
 const tok_end_program = P.token(">>");
 const tok_frame_start = P.token("->");
 
-const object_literal = P.anyOf("0123456789")._(
-  O.map((s) => new ObjectLiteral(s)),
-);
+const object_literal = P.anyOf("0123456789").map((s) => new ObjectLiteral(s));
 const var_name = P.anyOf("abcdefghijklmnopqrstuvwxyz");
 
 let block: Parser<Block>;
 
 const frame_invoke = P.sequence(
-  tok_frame_start._(O.omit()),
+  tok_frame_start.omit(),
   P.cut(),
   P.many(var_name),
-  tok_start_program._(O.omit()),
+  tok_start_program.omit(),
   P.ref(() => block),
-  tok_end_program._(O.omit()),
-)._(O.build(FrameInvokeNode));
+  tok_end_program.omit(),
+).build(FrameInvokeNode);
 
 const ite_statement = P.sequence(
-  P.token("IF")._(O.omit()),
+  P.token("IF").omit(),
   P.cut(),
   P.ref(() => block),
-  P.token("THEN")._(O.omit()),
+  P.token("THEN").omit(),
   P.ref(() => block),
-  P.sequence(
-    P.token("ELSE")._(O.omit()),
-    P.ref(() => block),
-  )
-    ._(O.map((s) => s[0]))
-    ._(O.optional()),
-  P.token("END")._(O.omit()),
-)._(O.build(IfThenElseStatement));
+  P.sequence(P.token("ELSE").omit(), P.ref(() => block))
+    .map((s) => s[0])
+    .optional(),
+  P.token("END").omit(),
+).build(IfThenElseStatement);
 
 const while_statement = P.sequence(
-  P.token("WHILE")._(O.omit()),
+  P.token("WHILE").omit(),
   P.cut(),
   P.ref(() => block),
-  P.token("DO")._(O.omit()),
+  P.token("DO").omit(),
   P.ref(() => block),
-  P.token("END")._(O.omit()),
-)._(O.build(WhileStatement));
+  P.token("END").omit(),
+).build(WhileStatement);
 
 const repeat_statement = P.sequence(
-  P.token("REPEAT")._(O.omit()),
+  P.token("REPEAT").omit(),
   P.cut(),
   P.ref(() => block),
-  P.token("UNTIL")._(O.omit()),
+  P.token("UNTIL").omit(),
   P.ref(() => block),
-  P.token("END")._(O.omit()),
-)._(O.build(RepeatStatement));
+  P.token("END").omit(),
+).build(RepeatStatement);
 
-const local_store = P.sequence(var_name, P.token("=")._(O.omit()))
-  ._(O.whitespace(P.pass()))
-  ._(O.build(LocalStoreNode));
+const local_store = P.sequence(var_name, P.token("=").omit())
+  .whitespace(P.pass())
+  .build(LocalStoreNode);
 
 block = P.sequence(
   P.many(
@@ -150,53 +145,51 @@ block = P.sequence(
       object_literal,
     ),
   ),
-)._(O.build(Block));
+).build(Block);
 
-const PC = new ParserContext(
-  new StringParserInput(
-    "123 456 IF 23 22 THEN 11 ELSE REPEAT 99 UNTIL 22 END END END >>",
-  ),
-);
-block.parse(PC);
-
-const program = P.sequence(tok_start_program, block, tok_end_program)._(
-  O.map((v) => v[1]),
+const program = P.sequence(tok_start_program, block, tok_end_program).map(
+  (v) => v[1],
 );
 
-describe("Program parser", () => {
+const nodeTypes = (b: Block) => b.statements.map((s) => s.nodeType);
+
+describe("Program parser (standard extensions)", () => {
   it("should match linear program", () => {
-    parse(program, "<< 123 456 >>");
+    const r: Block = parse(program, "<< 123 456 >>");
+    assert.deepStrictEqual(nodeTypes(r), ["literal", "literal"]);
   });
 
   it("should support IF THEN", () => {
-    console.log(JSON.stringify(parse(program, "<< IF 23 THEN 11 END >>")));
+    const r = parse(program, "<< IF 23 THEN 11 END >>");
+    const ite = r.statements[0] as IfThenElseStatement;
+    assert.strictEqual(ite.nodeType, "ite");
+    assert.strictEqual(ite.elseBlock, null);
   });
 
   it("should support IF THEN ELSE", () => {
-    console.log(
-      JSON.stringify(
-        parse(program, "<< 123 456 IF 23 22 THEN 11 ELSE 99 END >>"),
-      ),
-    );
+    const r = parse(program, "<< 123 456 IF 23 22 THEN 11 ELSE 99 END >>");
+    assert.deepStrictEqual(nodeTypes(r), ["literal", "literal", "ite"]);
+    const ite = r.statements[2] as IfThenElseStatement;
+    assert.deepStrictEqual(nodeTypes(ite.conditionBlock), ["literal", "literal"]);
+    assert.deepStrictEqual(nodeTypes(ite.elseBlock!), ["literal"]);
   });
 
   it("should support WHILE...DO...END", () => {
-    parse(program, "<< 123 456 WHILE 23  DO 11  END >>");
+    const r = parse(program, "<< 123 456 WHILE 23  DO 11  END >>");
+    assert.deepStrictEqual(nodeTypes(r), ["literal", "literal", "while"]);
   });
 
   it("should support REPEAT...UNTIL...END", () => {
-    parse(program, "<< 123 456 REPEAT 23 22 UNTIL 11  END >>");
+    const r = parse(program, "<< 123 456 REPEAT 23 22 UNTIL 11  END >>");
+    assert.deepStrictEqual(nodeTypes(r), ["literal", "literal", "repeat"]);
   });
 
   it("should support frames and local stores", () => {
-    const r: any = parse(program, "<< -> ab cd << x= 1 >> >>");
-    const frame = r._statements[0];
+    const r = parse(program, "<< -> ab cd << x= 1 >> >>");
+    const frame = r.statements[0] as FrameInvokeNode;
     assert.strictEqual(frame.nodeType, "frame");
-    assert.deepStrictEqual(frame._capturedVars, ["ab", "cd"]);
-    assert.deepStrictEqual(
-      frame._block._statements.map((s: Node) => s.nodeType),
-      ["localStore", "literal"],
-    );
+    assert.deepStrictEqual(frame.capturedVars, ["ab", "cd"]);
+    assert.deepStrictEqual(nodeTypes(frame.block), ["localStore", "literal"]);
   });
 
   it("should support fail on missing END", () => {
@@ -206,13 +199,13 @@ describe("Program parser", () => {
   });
 
   it("should support complex program", () => {
-    console.log(
-      JSON.stringify(
-        parse(
-          program,
-          "<< WHILE 2 DO 123 456 IF 23 22 THEN 11 ELSE REPEAT 99 UNTIL 22 END END END >>",
-        ),
-      ),
+    const r = parse(
+      program,
+      "<< WHILE 2 DO 123 456 IF 23 22 THEN 11 ELSE REPEAT 99 UNTIL 22 END END END >>",
     );
+    const loop = r.statements[0] as WhileStatement;
+    assert.deepStrictEqual(nodeTypes(loop.body), ["literal", "literal", "ite"]);
+    const ite = loop.body.statements[2] as IfThenElseStatement;
+    assert.deepStrictEqual(nodeTypes(ite.elseBlock!), ["repeat"]);
   });
 });

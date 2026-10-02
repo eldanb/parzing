@@ -14,6 +14,7 @@ import {
   PassParser,
   RefParser,
 } from "./core";
+import { applyExtensions, ExtendedParser, ParserExtension } from "./extensions";
 import { AnyOfParser } from "./parsers/AnyOfParser";
 import { RegexParser } from "./parsers/RegexParser";
 import { TokenParser } from "./parsers/TokenParser";
@@ -31,18 +32,28 @@ export function addPostfixSupport<T>(who: T): WithPostfixSupport<T> {
   return ret;
 }
 
-export class ParserBuilder<C = unknown> {
+export class ParserBuilder<C = unknown, E extends ParserExtension<E> = {}> {
   constructor(whitespaceParser: Parser<unknown, C> | null = null) {
     this._ws = whitespaceParser;
   }
 
-  postProcessParser<T extends Parser<any, C>>(parser: T): WithPostfixSupport<T> {
+  withExtension<X extends ParserExtension<X>>(extension: X): ParserBuilder<C, E & X> {
+    const ret = new ParserBuilder<C, E & X>(this._ws);
+    ret._extensions = { ...this._extensions, ...extension } as E & X;
+    return ret;
+  }
+
+  postProcessParser<T extends Parser<any, C>>(parser: T): ExtendedParser<T, E> {
     let p: Parser<ParserType<T>, C> = parser;
     if (p instanceof ParserWithInternalWhitespaceSupport && this._ws) {
       p = p.whitespace(this._ws);
     }
 
-    return addPostfixSupport(<T>p);
+    if (this._extensions) {
+      return applyExtensions(<T>p, this._extensions);
+    }
+
+    return addPostfixSupport(<T>p) as unknown as ExtendedParser<T, E>;
   }
 
   parser<T extends Parser<any, C>>(p: T) {
@@ -114,4 +125,5 @@ export class ParserBuilder<C = unknown> {
   }
 
   private _ws: Parser<unknown, C> | null;
+  private _extensions: E | null = null;
 }

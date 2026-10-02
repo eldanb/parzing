@@ -1,6 +1,6 @@
 # Parzing — Architecture
 
-> This file is kept up to date by Claude Code after every working session. Last updated: 2026-10-02 (whitespace() returns this, ParserContextType, MapParser context inference, choice postfix support).
+> This file is kept up to date by Claude Code after every working session. Last updated: 2026-10-02 (builder extensions, StandardOperators).
 
 ## Purpose
 
@@ -16,6 +16,7 @@ Parzing is a **parser combinator library** for TypeScript. It provides typed bui
 ├─────────────────────────────────────────────────────┤
 │  ParserBuilder (builder.ts)                         │  ← fluent factory; entry point for most users
 │  ParserOperators (operators.ts)                     │  ← postfix-style transform helpers
+│  Extensions (extensions.ts, standardOperators.ts)   │  ← operators as typed methods on parsers
 ├────────────────────┬────────────────────────────────┤
 │  Combinators       │  Primitive Parsers             │
 │  SequenceCombinator│  TokenParser                   │
@@ -87,7 +88,7 @@ Fired by `ParserContext.onIncompleteParseOption()` when a leaf parser encounters
 | `PassParser<C>` | Always succeeds, returns `void` |
 | `CutParser<C>` | Sets `ParserContext.cutEncountered = true`; used to prevent backtracking |
 | `RefParser<T, C>` | Lazily resolves to a parser returned by a callback; enables recursive grammars |
-| `ParserWithInternalWhitespaceSupport<T, C>` | Base class for combinators that skip whitespace between sub-parsers; exposes `.whitespace(ws)` (returns `this`, so postfix support survives the call) |
+| `ParserWithInternalWhitespaceSupport<T, C>` | Base class for combinators that skip whitespace between sub-parsers; exposes `.whitespace(ws)` (returns `this`) |
 
 `ParserType<P>` and `ParserContextType<P>` extract the result and context types of a parser type.
 
@@ -123,7 +124,7 @@ Greedy repetition. Parses as many occurrences as possible, optionally separated 
 Wraps a parser: on success returns the result; on failure (without a cut) backtracks and returns `null`. Cut-safe: saves and restores `cutEncountered`.
 
 ### `MapParser<V, T, C>` — `parser.map(parser, fn)` / `ParserOperators.map(fn)`
-Transforms the result of an underlying parser with a mapping function. Pass-through on failure. `C` defaults to `ParserContextType<V>`, so the context type is inferred from a concretely-typed input parser.
+Transforms the result of an underlying parser with a mapping function. Pass-through on failure. `C` defaults to `ParserContextType<V>`, so the context type is inferred from a concretely-typed input parser (inside a generic operator, pass `ParserContextType<P>` explicitly).
 
 ### `AstBuilder<Args, Ctor>` — `ParserOperators.build(Ctor)`
 Spreads the array result of a parser as constructor arguments, returning an instance of `Ctor`. Intended to be used with `SequenceCombinator` + `ParserOperators.omit` to build typed AST nodes.
@@ -151,6 +152,8 @@ The recommended way to construct parsers. Generic on the user context type `C`; 
 
 Factory methods: `token`, `anyOf`, `regex`, `fail`, `pass`, `cut`, `ref`, `attempt`, `map`, `sequence`, `choice`, `many`, `optional`, `named`.
 
+`ParserBuilder<C, E = {}>` also carries the type `E` of its registered extensions. `withExtension(ext)` returns a **new** builder typed `ParserBuilder<C, E & typeof ext>` (the original is unchanged); chain it to register several. All factory results are typed `ExtendedParser<T, E>`.
+
 ### `ParserOperators` namespace
 Stateless operator factories intended for use with the `._()` postfix API. Each returns `(parser) => newParser`. Available: `map`, `optional`, `build`, `omit`, `whitespace`, `withIndices`, `observe`, `named`.
 
@@ -159,6 +162,25 @@ Wraps any value with a `_` method: `parser._(op)` applies `op(parser)` and wraps
 ```ts
 pb.anyOf("0-9")._(O.map(Number.parseInt))._(O.optional())
 ```
+
+### Extensions (`src/extensions.ts`, `src/standardOperators.ts`)
+An extension is a plain object of operator methods. Every parser produced by an extended builder exposes those operators as methods, e.g. `P.token("1").map(Number).optional()`.
+
+Operators take the input parser as a `this` parameter typed `P extends ExtensibleParser` and return their result through `this._(...)`:
+```ts
+const MyOps = {
+  trimmed<P extends ExtensibleParser<string>>(this: P) {
+    return this._((p) => new MapParser(p, (s) => s.trim()));
+  },
+};
+```
+Returning through `_` is what keeps the result typed with the full extension set: `_` is declared `_<Self, R>(this: Self, f): Extend<Self, R>`, and `Extend` reads `E` back from the phantom `[parserExtensionsKey]` property of `Self`. (A generic method's return type can't be rewritten by a mapped type without losing its type parameters, so the machinery can't do this for a bare returned parser.) Use `ParserType<P>` / `ParserContextType<P>` when an operator needs the input's result or context type, and pass them as explicit type arguments to combinators taking `Parser<T, C>` — inference from a generic `P` would otherwise collapse to `any`.
+
+`ParserExtension` is the shape every extension must have: each member is a `ParserOperator` (a function taking an `ExtensibleParser` as `this` and returning a parser). `withExtension` enforces it, and extension definitions can check it at the definition site with `satisfies ParserExtension` (as `StandardOperators` does).
+
+`StandardOperators` mirrors `ParserOperators` as an extension: `map`, `optional`, `build`, `omit`, `withIndices`, `observe`, `named`. (`whitespace` is the native `ParserWithInternalWhitespaceSupport.whitespace` method.)
+
+**Runtime**: `applyExtensions(parser, extensions)` wraps the parser in a `Proxy`. Lookup order: `_`, then the parser's own members, then extension methods (so parser members win on name clashes). Parser methods are invoked on the raw target (keeping `parse()` field access off the proxy) and a `return this` result is mapped back to the proxy. Extension methods are called with `this` = the proxy, and their results are re-wrapped. A builder with no extensions keeps the old non-proxy path (`addPostfixSupport`), so existing behaviour is unchanged.
 
 ---
 
@@ -169,7 +191,9 @@ Re-exports:
 - Everything from `src/combinators/NamedParser.ts` (`NamedParser`)
 - Everything from `src/combinators/ParseObserver.ts` (`ParseObserver`, `ParseObserverCallbacks`)
 - Everything from `src/core.ts` (`Parser`, `ParserInput`, `ParserContext`, `ParseResult`, `ParseError`, `StringParserInput`, `parse`, `isParser`, `RefParser`, `CutParser`, `FailParser`, `PassParser`, `ParserType`, `ParserContextType`, `ParserWithInternalWhitespaceSupport`, `CompletionEvent`)
+- Everything from `src/extensions.ts` (`ExtendedParser`, `ExtensibleParser`, `ParserExtension`, `ParserOperator`, `Extend`, `ParserExtensionSupport`, `applyExtensions`, `parserExtensionsKey`)
 - Everything from `src/operators.ts` (`ParserOperators`)
+- Everything from `src/standardOperators.ts` (`StandardOperators`)
 - `WhitespaceParser` from `src/parsers/WhitespaceParser.ts`
 
 Note: the primitive parsers (`TokenParser`, `AnyOfParser`, `RegexParser`) and most combinators are **not individually re-exported**. Users access them through `ParserBuilder` factory methods and `ParserOperators`.

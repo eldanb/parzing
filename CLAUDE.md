@@ -11,7 +11,9 @@ src/
   core.ts                        — Core interfaces and primitives (Parser, ParserInput, ParseError, etc.)
   builder.ts                     — ParserBuilder: fluent factory class for constructing parsers
   operators.ts                   — ParserOperators namespace: postfix-style operator helpers
-  parzing.ts                     — Public entry point; re-exports from core, builder, operators, WhitespaceParser
+  extensions.ts                  — Builder extensions: ExtendedParser types + Proxy-based applyExtensions
+  standardOperators.ts           — StandardOperators: ParserOperators as an extension (p.map(...), p.optional(), ...)
+  parzing.ts                     — Public entry point; re-exports from core, builder, operators, extensions, WhitespaceParser
   parsers/
     TokenParser.ts               — Matches an exact string token
     AnyOfParser.ts               — Matches characters from a set (bitmap-optimised for ASCII)
@@ -30,7 +32,9 @@ dist/                            — Compiled JS + .d.ts output (generated; do n
 test/
   parsers.test.ts                — Unit tests for primitive parsers
   combinators.test.ts            — Unit tests for all combinators
-  language.test.ts               — Integration test: a small toy language grammar
+  extensions.test.ts             — Builder extensions, StandardOperators, custom operators
+  language.test.ts               — Integration test: a toy language grammar using StandardOperators methods
+  language.legacy.test.ts        — The same grammar using the `_(ParserOperators.x())` postfix API
 docs/
   architecture.md                — Architectural overview (keep this up to date)
 ```
@@ -55,7 +59,9 @@ Tests run directly against the TypeScript sources via `ts-mocha` (no separate co
 
 - `parsers.test.ts` — covers `TokenParser`, `AnyOfParser`, `RegexParser` in isolation
 - `combinators.test.ts` — covers `SequenceCombinator`, `ChooseCombinator`, `ManyCombinator`, `OptionalCombinator` and cut behaviour
-- `language.test.ts` — end-to-end test that builds a complete toy language grammar using `ParserBuilder` and `ParserOperators`
+- `extensions.test.ts` — covers `withExtension`, `StandardOperators`, custom extensions and compile-time extension checks
+- `language.test.ts` — end-to-end test that builds a complete toy language grammar using an extended `ParserBuilder` (`p.map(...)`, `p.omit()`, ...)
+- `language.legacy.test.ts` — the same grammar using `ParserBuilder` and `ParserOperators` via `p._(O.x())`
 
 Always run tests after making changes to `src/`.
 
