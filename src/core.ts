@@ -100,6 +100,7 @@ export class ParserContext<C = unknown> {
   private _onCompletion: ((e: CompletionEvent<any>) => void) | undefined;
   private _nameStack: string[] = [];
   private _recovering: boolean;
+  private _completionMuted: boolean = false;
 
   constructor(
     private _input: ParserInput,
@@ -119,6 +120,16 @@ export class ParserContext<C = unknown> {
 
   get completionEnabled(): boolean {
     return this._onCompletion !== undefined;
+  }
+
+  withoutCompletionEvents<R>(fn: () => R): R {
+    const prev = this._completionMuted;
+    this._completionMuted = true;
+    try {
+      return fn();
+    } finally {
+      this._completionMuted = prev;
+    }
   }
 
   strictly<R>(fn: () => R): R {
@@ -155,6 +166,9 @@ export class ParserContext<C = unknown> {
 
   onIncompleteParseOption(): void {
     this.ranIntoEof = true;
+    if (this._completionMuted) {
+      return;
+    }
     this._onCompletion?.({
       userContext: this.userContext,
       nameStack: this._nameStack.slice(),

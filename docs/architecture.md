@@ -1,6 +1,6 @@
 # Parzing — Architecture
 
-> This file is kept up to date by Claude Code after every working session. Last updated: 2026-10-03 (error recovery, steps 1-4: recovered failures, recovery-mode parse(), recoverWith, recovery in sequence/choice/many, many `until`, skipUntil, ref loop guard; choice follows the cut protocol).
+> This file is kept up to date by Claude Code after every working session. Last updated: 2026-10-03 (error recovery, steps 1-5: recovered failures, recovery-mode parse(), recoverWith, recovery in sequence/choice/many, many `until`, skipUntil, ref loop guard; choice follows the cut protocol; lookahead ignores completion and counts commitment).
 
 ## Purpose
 
@@ -68,6 +68,7 @@ Wraps a `ParserInput` and carries cross-parser state:
 - `onIncompleteParseOption()` — called by leaf parsers when they fail at EOF; sets `ranIntoEof` and fires the `onCompletion` callback supplied to `parse()` with a snapshot of `userContext` and `nameStack`
 - `ranIntoEof` — a boolean flag set by `onIncompleteParseOption()`. Recovery code saves/clears/restores it around a sub-parse (like `cutEncountered`) to tell whether that sub-parse failed because input ran out
 - `recovering` — true when `parse()` was called with `recover = true`; `strictly(fn)` runs `fn` with it temporarily off
+- `withoutCompletionEvents(fn)` — runs `fn` with completion events muted (`ranIntoEof` is still set); used for speculative lookahead
 - `completionEnabled` — true when an `onCompletion` callback was supplied
 
 ### `ParseResult<T>`
@@ -142,7 +143,7 @@ An error fails the list unless the attempt *may recover*: recovery mode is on, a
 
 If anything was recovered or skipped, `many` returns a failure carrying the list and the errors (after the usual `[min, max]` check, which fails without recovery).
 
-All lookaheads go through the internal helper `lookahead()` (`src/utils/lookahead.ts`, also used by `SkipUntilParser`): it runs the parser strictly, then restores the input position, `cutEncountered` and `ranIntoEof`.
+All lookaheads go through the internal helper `lookahead()` (`src/utils/lookahead.ts`, also used by `SkipUntilParser`). It runs the parser strictly and with completion events muted (a lookahead is speculative; if parsing then continues at that position, the real parse fires its own events), then restores the input position, `cutEncountered` and `ranIntoEof`. It reports a match if the parser succeeded **or committed** (failed after a cut): a cut says "this is one of mine", so junk skipping lands on a broken element (e.g. a term with a missing value) instead of skipping over it.
 
 ### `OptionalCombinator<T>` — `parser.optional(parser)`
 Wraps a parser: on success returns the result; on failure (without a cut) backtracks and returns `null`. Cut-safe: saves and restores `cutEncountered`. In recovery mode this means a recovery is discarded without a cut and passed on (as part of the failure) after one.

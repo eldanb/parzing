@@ -463,6 +463,17 @@ describe("Recovery core", () => {
       assert.deepStrictEqual(triedAt, [0, 1]);
     });
 
+    it("does not fire completion events while looking for the terminator", () => {
+      const events: unknown[] = [];
+      parse(P.skipUntil(P.token("END")), "xEN", false, undefined, () => events.push(1));
+      assert.strictEqual(events.length, 0);
+    });
+
+    it("stops where the terminator commits, even if it then fails", () => {
+      const committed = P.sequence(P.token("k"), P.cut(), P.token("v"));
+      assert.strictEqual(parse(P.sequence(P.skipUntil(committed), P.token("kx")), "ab kx")[0], "ab ");
+    });
+
     it("leaves cut and ranIntoEof untouched", () => {
       const ctx = new ParserContext(new StringParserInput("ab"));
       P.skipUntil(P.sequence(P.cut(), P.token("abc"))).parse(ctx);
