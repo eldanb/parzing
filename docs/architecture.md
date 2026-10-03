@@ -1,6 +1,6 @@
 # Parzing — Architecture
 
-> This file is kept up to date by Claude Code after every working session. Last updated: 2026-10-02 (whitespace() returns this, ParserContextType, MapParser context inference, choice postfix support).
+> This file is kept up to date by Claude Code after every working session. Last updated: 2026-10-03 (error recovery, step 1: recovered failures, ParseError.offset, recovery-mode parse()).
 
 ## Purpose
 
@@ -64,13 +64,20 @@ Wraps a `ParserInput` and carries cross-parser state:
 - `cutEncountered` — a boolean flag set by `CutParser`; suppresses backtracking in combinators
 - `userContext: C` — caller-supplied context object, passed to `parse()` and threaded through the entire parse; accessible in `ParseObserver` callbacks and `CompletionEvent`
 - `nameStack: readonly string[]` — stack of names pushed by `NamedParser`; read by `ParseError` and `CompletionEvent` to provide human-readable location context
-- `onIncompleteParseOption()` — called by leaf parsers when they fail at EOF; fires the `onCompletion` callback supplied to `parse()` with a snapshot of `userContext` and `nameStack`
+- `onIncompleteParseOption()` — called by leaf parsers when they fail at EOF; sets `ranIntoEof` and fires the `onCompletion` callback supplied to `parse()` with a snapshot of `userContext` and `nameStack`
+- `ranIntoEof` — a boolean flag set by `onIncompleteParseOption()`. Recovery code saves/clears/restores it around a sub-parse (like `cutEncountered`) to tell whether that sub-parse failed because input ran out
+- `recovering` — true when `parse()` was called with `recover = true`; `strictly(fn)` runs `fn` with it temporarily off
+- `completionEnabled` — true when an `onCompletion` callback was supplied
 
 ### `ParseResult<T>`
-A discriminated union: `{ successful: true; result: T }` or `{ successful: false; parseError: ParseError }`. Returned by every `parse()` call. The top-level `parse()` function unwraps this and throws on failure.
+A discriminated union: `{ successful: true; result: T }` or `ParseFailure<T>` = `{ successful: false; parseError: ParseError; recovered?: Recovered<T> }`. Returned by every `parse()` call.
+
+In recovery mode a failure may carry `recovered: { result: T; errors: ParseError[] }` — a best-effort value of the parser's own type plus the errors encountered producing it. A failure carrying a recovery is still a failure: every combinator backtracks exactly as in strict mode, and only recovery-aware code uses `recovered`. By convention, such a failure leaves the input positioned at the end of the recovered text. `ParseResult.forwardFailure(f, fn)` passes a failure on while mapping its recovered value; result-transforming combinators (`MapParser`, `AstBuilder`, `ParserWithIndices`) use it so recovered values are transformed like successful ones.
+
+The top-level `parse()` function unwraps the result and throws on failure. Its 6th argument `recover = true` runs the parse in recovery mode; the signature and return type are unchanged. A clean parse returns the result as usual. Otherwise it throws a `ParseError` whose `recovered` field holds `{ result, errors }`: the best-effort result plus every error (including `End of input expected` for leftover input, unless `allowPartial` is set). If nothing recovered, the plain error is thrown without `recovered`.
 
 ### `ParseError`
-Carries a human-readable `message` with position info (`at <offset> ('<preview>')`). Also carries `nameStack: readonly string[]` (a snapshot captured at error time from `ParserContext.nameStack`). If non-empty, the name stack is prepended to the message as `[outer > inner] ...`.
+Carries a human-readable `message` with position info (`at <offset> ('<preview>')`). Also carries `nameStack: readonly string[]` (a snapshot captured at error time from `ParserContext.nameStack`). If non-empty, the name stack is prepended to the message as `[outer > inner] ...`. `offset` is the input position (`tell()`) when the error was raised; `length` (default 0) marks the size of a skipped range for errors produced by recovery. `recovered` is set only on the error thrown by a recovery-mode `parse()`; `withRecovered()` creates that error as a copy, so it is never inside its own `recovered.errors`.
 
 ### `CompletionEvent<C = unknown>`
 Fired by `ParserContext.onIncompleteParseOption()` when a leaf parser encounters EOF. Contains `userContext: C` and `nameStack: readonly string[]` — both snapshotted at the time of the event. Collected via the `onCompletion` callback passed to `parse()`. Multiple events may fire per `parse()` call (one per branch that hits EOF).

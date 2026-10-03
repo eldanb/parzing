@@ -15,7 +15,7 @@ export class ParserWithIndices<T, C = unknown> implements Parser<ResultWithIndic
         const endOfs = parserContext.input.tell();
 
         if(!ret.successful) {
-            return ParseResult.failed(ret.parseError);
+            return ParseResult.forwardFailure(ret, (r) => ({ result: r, start: startOfs, length: endOfs-startOfs }));
         }
         return ParseResult.successful({ result: ret.result, start: startOfs, length: endOfs-startOfs });
     }

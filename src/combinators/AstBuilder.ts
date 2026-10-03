@@ -8,7 +8,7 @@ export class AstBuilder<Args extends [...any], Ctor extends new(...args: Args) =
     parse(parserContext: ParserContext<C>): ParseResult<InstanceType<Ctor>> {
         const s = this._parser.parse(parserContext);
         if(!s.successful) {
-            return ParseResult.failed(s.parseError);
+            return ParseResult.forwardFailure(s, (r) => new this._ctor(...r));
         }
 
         return ParseResult.successful(new this._ctor(...s.result));

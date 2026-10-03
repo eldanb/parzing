@@ -99,15 +99,36 @@ export class ParserContext<C = unknown> {
   private _whitespaceParser: Parser<unknown, any> | null;
   private _onCompletion: ((e: CompletionEvent<any>) => void) | undefined;
   private _nameStack: string[] = [];
+  private _recovering: boolean;
 
   constructor(
     private _input: ParserInput,
     whitespaceParser: Parser<unknown, any> | null = null,
     public readonly userContext: C = undefined as unknown as C,
     onCompletion?: (e: CompletionEvent<C>) => void,
+    recovering: boolean = false,
   ) {
     this._whitespaceParser = whitespaceParser;
     this._onCompletion = onCompletion;
+    this._recovering = recovering;
+  }
+
+  get recovering(): boolean {
+    return this._recovering;
+  }
+
+  get completionEnabled(): boolean {
+    return this._onCompletion !== undefined;
+  }
+
+  strictly<R>(fn: () => R): R {
+    const prev = this._recovering;
+    this._recovering = false;
+    try {
+      return fn();
+    } finally {
+      this._recovering = prev;
+    }
   }
 
   parseWhitespace() {
@@ -133,6 +154,7 @@ export class ParserContext<C = unknown> {
   }
 
   onIncompleteParseOption(): void {
+    this.ranIntoEof = true;
     this._onCompletion?.({
       userContext: this.userContext,
       nameStack: this._nameStack.slice(),
@@ -140,11 +162,24 @@ export class ParserContext<C = unknown> {
   }
 
   public cutEncountered: boolean = false;
+  public ranIntoEof: boolean = false;
 }
+
+export interface Recovered<T> {
+  result: T;
+  errors: ParseError[];
+}
+
+export type ParseFailure<T> = {
+  successful: false;
+  failed: true;
+  parseError: ParseError;
+  recovered?: Recovered<T>;
+};
 
 export type ParseResult<T> =
   | { successful: true; failed: false; result: T }
-  | { successful: false; failed: true; parseError: ParseError };
+  | ParseFailure<T>;
 
 export namespace ParseResult {
   export function successful<T>(r: T): ParseResult<T> {
@@ -155,8 +190,26 @@ export namespace ParseResult {
     return { successful: true, failed: false, result: void 0 };
   }
 
-  export function failed<T>(r: ParseError): ParseResult<T> {
-    return { successful: false, failed: true, parseError: r };
+  export function failed<T>(
+    r: ParseError,
+    recovered?: Recovered<T>,
+  ): ParseResult<T> {
+    return recovered
+      ? { successful: false, failed: true, parseError: r, recovered }
+      : { successful: false, failed: true, parseError: r };
+  }
+
+  export function forwardFailure<S, T>(
+    f: ParseFailure<S>,
+    fn: (s: S) => T,
+  ): ParseResult<T> {
+    return failed(
+      f.parseError,
+      f.recovered && {
+        result: fn(f.recovered.result),
+        errors: f.recovered.errors,
+      },
+    );
   }
 
   export function resultOrThrow<T>(p: ParseResult<T>): T {
@@ -246,6 +299,7 @@ export function parse<T, C = unknown>(
   allowPartial: boolean = false,
   userContext?: C,
   onCompletion?: (e: CompletionEvent<C>) => void,
+  recover: boolean = false,
 ): T {
   if (typeof input === "string") {
     input = new StringParserInput(input);
@@ -256,24 +310,41 @@ export function parse<T, C = unknown>(
     null,
     userContext as C,
     onCompletion,
+    recover,
   );
-  const result = ParseResult.resultOrThrow(parser.parse(context));
+  const parseResult = parser.parse(context);
+  if (!parseResult.successful && !(recover && parseResult.recovered)) {
+    throw parseResult.parseError;
+  }
+
+  const errors = parseResult.successful ? [] : [...parseResult.recovered!.errors];
+  const result = parseResult.successful
+    ? parseResult.result
+    : parseResult.recovered!.result;
 
   if (!allowPartial && !input.eof()) {
-    throw new ParseError(
-      input,
-      input.getBookmark(),
-      null,
-      `End of input expected`,
+    errors.push(
+      new ParseError(input, input.getBookmark(), null, `End of input expected`),
     );
   }
 
-  return result;
+  if (errors.length === 0) {
+    return result;
+  }
+
+  if (!recover) {
+    throw errors[0];
+  }
+
+  const first = parseResult.successful ? errors[0] : parseResult.parseError;
+  throw first.withRecovered({ result, errors });
 }
 
 export class ParseError {
   public message: string;
   public readonly nameStack: readonly string[];
+  public readonly offset: number;
+  public readonly recovered?: Recovered<unknown>;
 
   constructor(
     input: ParserInput,
@@ -281,7 +352,9 @@ export class ParseError {
     parser: Parser<unknown, any> | null,
     contentMessage: string,
     nameStack: readonly string[] = [],
+    public readonly length: number = 0,
   ) {
+    this.offset = input.tell();
     this.nameStack = nameStack;
     this.message = contentMessage;
     if (nameStack.length > 0) {
@@ -290,6 +363,13 @@ export class ParseError {
     if (bookmark) {
       this.message = `${this.message} at ${bookmark} ('${input.peek(5)}')`;
     }
+  }
+
+  withRecovered(recovered: Recovered<unknown>): ParseError {
+    // A copy, so the thrown error is not itself inside recovered.errors (keeps it JSON-serialisable).
+    return Object.assign(Object.create(ParseError.prototype), this, {
+      recovered,
+    });
   }
 
   toString(): string {
