@@ -134,4 +134,114 @@ describe("Recovery core", () => {
       assert.deepStrictEqual(r.recovered.result, { result: "R", start: 1, length: 3 });
     });
   });
+
+  describe("recoverWith", () => {
+    const constant = <T>(v: T) => P.pass()._(O.map(() => v));
+
+    function recovering(text: string, onCompletion?: () => void) {
+      return new ParserContext(new StringParserInput(text), null, undefined, onCompletion, true);
+    }
+
+    it("is transparent outside recovery mode", () => {
+      const p = P.token("a")._(O.recoverWith(constant("R")));
+      assert.strictEqual(parse(p, "a"), "a");
+      assert.throws(() => parse(p, "x"), (e: ParseError) => e.recovered === undefined);
+    });
+
+    it("returns the inner result when it succeeds", () => {
+      const p = P.token("a")._(O.recoverWith(constant("R")));
+      assert.strictEqual(parse(p, "a", false, undefined, undefined, true), "a");
+    });
+
+    it("recovers with the recovery parser's result and the inner error", () => {
+      const p = P.token("a")._(O.recoverWith(P.token("b")));
+      const r = p.parse(recovering("b"));
+      assert.ok(r.failed && r.recovered);
+      assert.strictEqual(r.recovered.result, "b");
+      assert.deepStrictEqual(r.recovered.errors, [r.parseError]);
+    });
+
+    it("runs the recovery parser from where the inner parser started", () => {
+      const p = P.sequence(P.token("a"), P.token("b"))._(O.recoverWith(P.regex(/a./)));
+      const ctx = recovering("ax");
+      const r = p.parse(ctx);
+      assert.ok(r.failed && r.recovered);
+      assert.strictEqual(r.recovered.result, "ax");
+      assert.strictEqual(ctx.input.tell(), 2);
+    });
+
+    it("overrides recoveries nested inside the inner parser", () => {
+      const inner = P.token("a")._(O.recoverWith(constant("inner")));
+      const p = P.parser(inner)._(O.recoverWith(constant("outer")));
+      const r = p.parse(recovering("x"));
+      assert.ok(r.failed && r.recovered);
+      assert.strictEqual(r.recovered.result, "outer");
+    });
+
+    it("does not recover when the recovery parser fails", () => {
+      const p = P.token("a")._(O.recoverWith(P.token("b")));
+      const r = p.parse(recovering("x"));
+      assert.ok(r.failed);
+      assert.strictEqual(r.recovered, undefined);
+    });
+
+    it("uses the recovery parser's own recovery, collecting both errors", () => {
+      const z = P.token("b")._(O.recoverWith(constant("deep")));
+      const p = P.token("a")._(O.recoverWith(z));
+      const r = p.parse(recovering("x"));
+      assert.ok(r.failed && r.recovered);
+      assert.strictEqual(r.recovered.result, "deep");
+      assert.strictEqual(r.recovered.errors.length, 2);
+      assert.strictEqual(r.recovered.errors[0], r.parseError);
+    });
+
+    it("keeps the inner parser's cut and hides the recovery parser's", () => {
+      const cutThenFail = P.sequence(P.cut(), P.token("a"));
+      const withInnerCut = P.parser(cutThenFail)._(O.recoverWith(constant("R")));
+      const ctx1 = recovering("x");
+      withInnerCut.parse(ctx1);
+      assert.strictEqual(ctx1.cutEncountered, true);
+
+      const withRecoveryCut = P.token("a")._(O.recoverWith(P.sequence(P.cut(), constant("R"))));
+      const ctx2 = recovering("x");
+      withRecoveryCut.parse(ctx2);
+      assert.strictEqual(ctx2.cutEncountered, false);
+    });
+
+    describe("at end of input", () => {
+      const end = P.token("END")._(O.recoverWith(constant("missing")));
+
+      it("recovers when no completion callback is set", () => {
+        const r = end.parse(recovering("EN"));
+        assert.ok(r.failed && r.recovered);
+        assert.strictEqual(r.recovered.result, "missing");
+      });
+
+      it("does not recover when completion is on", () => {
+        const events: unknown[] = [];
+        const r = end.parse(recovering("EN", () => events.push(1)));
+        assert.ok(r.failed);
+        assert.strictEqual(r.recovered, undefined);
+        assert.strictEqual(events.length, 1);
+      });
+
+      it("still recovers failures before the end when completion is on", () => {
+        const r = end.parse(recovering("EXX", () => {}));
+        assert.ok(r.failed && r.recovered);
+        assert.strictEqual(r.recovered.result, "missing");
+      });
+
+      it("propagates ranIntoEof to the caller", () => {
+        const ctx = recovering("EN", () => {});
+        end.parse(ctx);
+        assert.strictEqual(ctx.ranIntoEof, true);
+      });
+    });
+
+    it("types the result as the union of both parsers", () => {
+      class Missing {}
+      const p: Parser<string | Missing> = P.token("a")._(O.recoverWith(constant(new Missing())));
+      assert.ok(p);
+    });
+  });
 });
