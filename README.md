@@ -432,6 +432,22 @@ function map<S, T>(mapper: (s: S) => T) {
 }
 ```
 
+## Change List
+
+### Version _(upcoming)_
+
+- **Error recovery.** `parse()` takes a new, optional 6th argument, `recover`. In recovery mode, a parse that hits syntax errors can still produce a best-effort result: instead of a plain error, `parse()` throws a `ParseError` whose `recovered` field holds `{ result, errors }`, with the recovered result and every error encountered. A clean parse returns its result as before.
+- **`ParserOperators.recoverWith(z)`.** In recovery mode, if the wrapped parser fails, `z` is run from the same start position and its result is used in place of the failed one. The result type becomes `T | R`. Failures at end of input are not recovered while a completion callback is set, so completion only ever sees what was actually typed.
+- **Recovery in `sequence`, `choice` and `many`.** A sequence keeps an element's recovered value and continues after it. A choice with no successful alternative returns the recovery that got furthest. `many` keeps recovered elements that are committed by a cut, and leaves out a missing element after a separator.
+- **`ParserBuilder.many(parser, sep?, min?, max?, until?)`.** The new `until` argument describes what may follow the list. It is used only in recovery mode, as lookahead: where the list would otherwise stop and `until` doesn't match, the input is treated as junk and skipped, and parsing continues at the next element, separator or `until`.
+- **`ParserBuilder.skipUntil(terminator)`.** Skips input up to (not including) `terminator`, or to the end of input, and returns the skipped text. Useful as a recovery, e.g. `stmt._(ParserOperators.recoverWith(pb.skipUntil(pb.token(';'))))`.
+- **Recursion guard in recovery mode.** A recursive rule (`ParserBuilder.ref`) that is re-entered at the same position without consuming input fails instead of recursing forever. This can only happen through zero-width recoveries; strict parsing is unaffected.
+- **`ParserContext.withoutCompletionEvents(fn)`.** Runs `fn` with completion events muted. Recovery's speculative lookaheads use it, so completion only reports what the real parse tries.
+- **`ParseError.offset` and `ParseError.length`.** The position of the error, and the size of the skipped range for errors produced by recovery.
+- **Breaking: `choice` no longer stops early after an earlier cut.** A cut *before* a choice in the same sequence (e.g. `sequence(a, cut(), choice(x, y))`) used to stop the choice after its first failing alternative; the choice now tries every alternative, as the cut protocol requires. A cut *inside* an alternative still stops it. Grammars with a cut before a choice may now accept input they used to reject.
+- **Clearer error messages.** A failing `choice` now says what its alternatives expected (`Expected one of: (, field`), using `named()` names where available, instead of `Parser rejected input`. `many` reports a failed element's error when that leaves it with too few elements, and states count limits plainly (`Expected at least 2 occurrences; found 1`). Mandatory whitespace reports `Expected whitespace`. Errors at offset 0 now include their position. `ParseError` gains `reason`, the message without name-stack prefix or position.
+- **`many` no longer loops forever** when an iteration consumes no input (for example `many(optional(x))` on input that doesn't match `x`); it now stops.
+
 ## License and Credits
 Parzing is Copyright (c) 2021, 2022 Eldan Ben-Haim. 
 Licensed under MIT license.

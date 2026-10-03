@@ -16,6 +16,7 @@ import {
 } from "./core";
 import { AnyOfParser } from "./parsers/AnyOfParser";
 import { RegexParser } from "./parsers/RegexParser";
+import { SkipUntilParser } from "./parsers/SkipUntilParser";
 import { TokenParser } from "./parsers/TokenParser";
 
 type WithPostfixSupport<T> = T & {
@@ -61,6 +62,10 @@ export class ParserBuilder<C = unknown> {
     return this.postProcessParser(new RegexParser<C>(re));
   }
 
+  skipUntil(terminator: Parser<unknown, C>) {
+    return this.postProcessParser(new SkipUntilParser<C>(terminator));
+  }
+
   fail(message: string) {
     return this.postProcessParser(new FailParser<C>(message));
   }
@@ -101,8 +106,9 @@ export class ParserBuilder<C = unknown> {
     sep?: Parser<unknown, C>,
     min: number = 0,
     max: number = 0,
+    until?: Parser<unknown, C>,
   ) {
-    return this.postProcessParser(new ManyCombinator<T, C>(parser, sep, min, max));
+    return this.postProcessParser(new ManyCombinator<T, C>(parser, sep, min, max, until));
   }
 
   optional<T>(parser: Parser<T, C>) {
