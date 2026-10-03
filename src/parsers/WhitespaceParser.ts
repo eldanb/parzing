@@ -17,7 +17,7 @@ export class WhitespaceParser<C = unknown> implements Parser<void, C> {
 
     if (this._mandatory && !found) {
       return ParseResult.failed<void>(
-        ParseError.parserRejected(this, parserContext),
+        ParseError.parserRejected(this, parserContext, "Expected whitespace"),
       );
     } else {
       return ParseResult.voidSuccessful();

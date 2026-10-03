@@ -35,6 +35,7 @@ export class ManyCombinator<T, C = unknown> extends ParserWithInternalWhitespace
     let afterSeparator = false;
     // Attempting the same thing at the same position twice means no progress; stop rather than loop.
     const lastAttemptPos = { element: -1, separator: -1 };
+    let lastElementError: ParseError | null = null;
 
     try {
       while (true) {
@@ -52,6 +53,10 @@ export class ManyCombinator<T, C = unknown> extends ParserWithInternalWhitespace
         if (r.successful) {
           value = r.result;
         } else {
+          if (next === "element") {
+            lastElementError = r.parseError;
+          }
+
           const mayRecover =
             parserContext.recovering &&
             !(ranIntoEof && parserContext.completionEnabled);
@@ -100,16 +105,16 @@ export class ManyCombinator<T, C = unknown> extends ParserWithInternalWhitespace
         }
       }
 
+      if (output.length < this._min && lastElementError) {
+        return ParseResult.failed(lastElementError);
+      }
+
       if (
         output.length < this._min ||
         (this._max > 0 && output.length > this._max)
       ) {
         return ParseResult.failed(
-          ParseError.parserRejected(
-            this,
-            parserContext,
-            `Expected occurences in range {${this._min}, ${this._max}}; found ${output.length}`,
-          ),
+          ParseError.parserRejected(this, parserContext, this.countMessage(output.length)),
         );
       }
 
@@ -117,6 +122,17 @@ export class ManyCombinator<T, C = unknown> extends ParserWithInternalWhitespace
     } finally {
       parserContext.cutEncountered = pce;
     }
+  }
+
+  private countMessage(found: number): string {
+    const plural = (n: number) => (n === 1 ? "occurrence" : "occurrences");
+    const expected =
+      this._max <= 0
+        ? `at least ${this._min} ${plural(this._min)}`
+        : this._min <= 0
+          ? `at most ${this._max} ${plural(this._max)}`
+          : `between ${this._min} and ${this._max} occurrences`;
+    return `Expected ${expected}; found ${found}`;
   }
 
   private attempt<R>(

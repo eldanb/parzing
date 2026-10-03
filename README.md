@@ -445,6 +445,7 @@ function map<S, T>(mapper: (s: S) => T) {
 - **`ParserContext.withoutCompletionEvents(fn)`.** Runs `fn` with completion events muted. Recovery's speculative lookaheads use it, so completion only reports what the real parse tries.
 - **`ParseError.offset` and `ParseError.length`.** The position of the error, and the size of the skipped range for errors produced by recovery.
 - **Breaking: `choice` no longer stops early after an earlier cut.** A cut *before* a choice in the same sequence (e.g. `sequence(a, cut(), choice(x, y))`) used to stop the choice after its first failing alternative; the choice now tries every alternative, as the cut protocol requires. A cut *inside* an alternative still stops it. Grammars with a cut before a choice may now accept input they used to reject.
+- **Clearer error messages.** A failing `choice` now says what its alternatives expected (`Expected one of: (, field`), using `named()` names where available, instead of `Parser rejected input`. `many` reports a failed element's error when that leaves it with too few elements, and states count limits plainly (`Expected at least 2 occurrences; found 1`). Mandatory whitespace reports `Expected whitespace`. Errors at offset 0 now include their position. `ParseError` gains `reason`, the message without name-stack prefix or position.
 - **`many` no longer loops forever** when an iteration consumes no input (for example `many(optional(x))` on input that doesn't match `x`); it now stops.
 
 ## License and Credits

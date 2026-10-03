@@ -381,6 +381,7 @@ export function parse<T, C = unknown>(
 
 export class ParseError {
   public message: string;
+  public readonly reason: string;
   public readonly nameStack: readonly string[];
   public readonly offset: number;
   public readonly recovered?: Recovered<unknown>;
@@ -394,12 +395,13 @@ export class ParseError {
     public readonly length: number = 0,
   ) {
     this.offset = input.tell();
+    this.reason = contentMessage;
     this.nameStack = nameStack;
     this.message = contentMessage;
     if (nameStack.length > 0) {
       this.message = `[${nameStack.join(" > ")}] ${this.message}`;
     }
-    if (bookmark) {
+    if (bookmark != null) {
       this.message = `${this.message} at ${bookmark} ('${input.peek(5)}')`;
     }
   }

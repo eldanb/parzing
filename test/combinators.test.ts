@@ -530,3 +530,48 @@ describe("Choice combinator and cuts", () => {
     assert.throws(() => parse(p, "az", true));
   });
 });
+
+describe("Error messages", () => {
+  function messageOf(fn: () => unknown): string {
+    try {
+      fn();
+    } catch (e: any) {
+      return e.message;
+    }
+    return assert.fail("expected a parse error");
+  }
+
+  it("should list what a choice's alternatives expected", () => {
+    assert.strictEqual(
+      messageOf(() => parse(P.choice(P.token("a"), P.token("b")), "c")),
+      "Expected one of: token a, token b at 0 ('c')",
+    );
+  });
+
+  it("should name a choice's alternatives by their names when they have them", () => {
+    const p = P.choice(P.named(P.token("("), "open"), P.named(P.regex(/[a-z]+/), "field"));
+    assert.ok(messageOf(() => parse(p, "1")).startsWith("Expected one of: open, field"));
+  });
+
+  it("should report a failed element when many has too few", () => {
+    assert.ok(messageOf(() => parse(P.many(P.token("a"), undefined, 2), "ab")).startsWith("Expected token a at 1"));
+  });
+
+  it("should state many's count limits plainly", () => {
+    assert.ok(messageOf(() => parse(P.many(P.token("a"), undefined, 0, 1), "aa")).startsWith("Expected at most 1 occurrence; found 2"));
+    assert.ok(messageOf(() => parse(P.many(P.token("a"), undefined, 2, 3), "aaaa")).startsWith("Expected between 2 and 3 occurrences; found 4"));
+  });
+
+  it("should report missing mandatory whitespace", () => {
+    const p = P.sequence(P.token("a"), new WhitespaceParser(true), P.token("b"));
+    assert.ok(messageOf(() => parse(p, "ab")).startsWith("Expected whitespace at 1"));
+  });
+
+  it("should keep the raw reason separately", () => {
+    try {
+      parse(P.named(P.token("a"), "letter"), "b");
+    } catch (e: any) {
+      assert.strictEqual(e.reason, "Expected token a");
+    }
+  });
+});

@@ -11,12 +11,13 @@ src/
   core.ts                        — Core interfaces and primitives (Parser, ParserInput, ParseError, etc.)
   builder.ts                     — ParserBuilder: fluent factory class for constructing parsers
   operators.ts                   — ParserOperators namespace: postfix-style operator helpers
-  parzing.ts                     — Public entry point; re-exports from core, builder, operators, WhitespaceParser
+  parzing.ts                     — Public entry point; re-exports from core, builder, operators, NamedParser, ParseObserver, WhitespaceParser
   parsers/
     TokenParser.ts               — Matches an exact string token
     AnyOfParser.ts               — Matches characters from a set (bitmap-optimised for ASCII)
     RegexParser.ts               — Matches a RegExp at the current position
     WhitespaceParser.ts          — Matches space/tab/newline; optional or mandatory mode
+    SkipUntilParser.ts           — Skips input up to a terminator (or EOF); a building block for recoveries
   combinators/
     SequenceCombinator.ts        — Runs parsers in order; collects non-void results into a typed tuple
     ChooseCombinator.ts          — Tries alternatives left-to-right with backtracking
@@ -26,11 +27,19 @@ src/
     AstBuilder.ts                — Spreads a sequence result into a constructor call
     AttemptParser.ts             — Wraps a parser and swallows any cut signal
     ParserWithIndices.ts         — Wraps a parser and returns start/length source offsets
+    NamedParser.ts               — Pushes a name onto the context's name stack (errors, completion)
+    ParseObserver.ts             — Calls enter/leave callbacks with the user context
+    RecoveringParser.ts          — recoverWith(): in recovery mode, replaces a failure with a recovery parser's result
+  utils/                         — Internal helpers, not exported
+    RecoveryErrors.ts            — Collects errors while recovering; builds the (possibly recovered) result
+    lookahead.ts                 — Strict, side-effect-free "does this match (or commit) here?" check
 dist/                            — Compiled JS + .d.ts output (generated; do not edit)
 test/
   parsers.test.ts                — Unit tests for primitive parsers
   combinators.test.ts            — Unit tests for all combinators
   language.test.ts               — Integration test: a small toy language grammar
+  recovery.test.ts               — Error recovery: recovery-mode parse(), recoverWith, recovery in combinators, skipUntil, ref guard
+  expression.test.ts             — Integration test: a filter-expression grammar with recovery and completion
 docs/
   architecture.md                — Architectural overview (keep this up to date)
 ```
@@ -56,6 +65,8 @@ Tests run directly against the TypeScript sources via `ts-mocha` (no separate co
 - `parsers.test.ts` — covers `TokenParser`, `AnyOfParser`, `RegexParser` in isolation
 - `combinators.test.ts` — covers `SequenceCombinator`, `ChooseCombinator`, `ManyCombinator`, `OptionalCombinator` and cut behaviour
 - `language.test.ts` — end-to-end test that builds a complete toy language grammar using `ParserBuilder` and `ParserOperators`
+- `recovery.test.ts` — covers error recovery: recovery-mode `parse()`, `recoverWith`, recovery in `sequence`/`choice`/`many`/`optional`, `many`'s `until`, `skipUntil` and the `ref` loop guard
+- `expression.test.ts` — end-to-end recovery and completion examples on a small filter-expression grammar, including known recovery limits
 
 Always run tests after making changes to `src/`.
 

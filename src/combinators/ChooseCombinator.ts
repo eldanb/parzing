@@ -11,6 +11,7 @@ export class ChooseCombinator<E extends Parser<any, C>[], C = unknown> implement
         const input = parserContext.input;
         const bm = input.getBookmark();
         const pce = parserContext.cutEncountered;
+        const expected: string[] = [];
         let best: { result: ParseResult<ChooseResult<E>>, end: ParserInputBookmark, endPos: number } | null = null;
 
         for(let i = 0; i < this._parsers.length; i++) {
@@ -25,6 +26,11 @@ export class ChooseCombinator<E extends Parser<any, C>[], C = unknown> implement
             // The alternative committed: its failure is final, and the cut stays visible to callers.
             if(parserContext.cutEncountered) {
                 return combOpt;
+            }
+
+            const description = this.describe(combOpt.parseError, parserContext);
+            if(!expected.includes(description)) {
+                expected.push(description);
             }
 
             if(parserContext.recovering && combOpt.recovered) {
@@ -43,6 +49,16 @@ export class ChooseCombinator<E extends Parser<any, C>[], C = unknown> implement
             return best.result;
         }
 
-        return ParseResult.failed(ParseError.parserRejected(this, parserContext));
+        return ParseResult.failed(ParseError.parserRejected(this, parserContext, `Expected one of: ${expected.join(", ")}`));
+    }
+
+    // Names an alternative by the first name it pushed (e.g. a named token or rule), else by what it expected.
+    private describe(error: ParseError, parserContext: ParserContext<C>): string {
+        const depth = parserContext.nameStack.length;
+        if(error.nameStack.length > depth) {
+            return error.nameStack[depth];
+        }
+
+        return error.reason.replace(/^Expected (one of: )?/, "");
     }
 }
