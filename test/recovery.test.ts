@@ -10,6 +10,7 @@ import {
   StringParserInput,
 } from "../src/core";
 import { ParserOperators as O } from "../src/operators";
+import { WhitespaceParser } from "../src/parsers/WhitespaceParser";
 
 const P = new ParserBuilder();
 
@@ -242,6 +243,194 @@ describe("Recovery core", () => {
       class Missing {}
       const p: Parser<string | Missing> = P.token("a")._(O.recoverWith(constant(new Missing())));
       assert.ok(p);
+    });
+  });
+
+  describe("combinators in recovery mode", () => {
+    const W = new ParserBuilder(new WhitespaceParser(false));
+    const constant = <T>(v: T) => P.pass()._(O.map(() => v));
+
+    function run<T>(p: Parser<T>, text: string, onCompletion?: () => void) {
+      const ctx = new ParserContext(new StringParserInput(text), null, undefined, onCompletion, true);
+      return { r: p.parse(ctx), ctx };
+    }
+
+    describe("sequence", () => {
+      it("keeps an element's recovery and continues after it", () => {
+        const p = P.sequence(P.token("a"), P.token("b")._(O.recoverWith(constant("B"))), P.token("c"));
+        const { r } = run(p, "ac");
+        assert.ok(r.failed && r.recovered);
+        assert.deepStrictEqual(r.recovered.result, ["a", "B", "c"]);
+        assert.strictEqual(r.recovered.errors.length, 1);
+        assert.strictEqual(r.parseError, r.recovered.errors[0]);
+      });
+
+      it("leaves omitted recovered values out of the tuple", () => {
+        const p = P.sequence(P.token("a"), P.token("b")._(O.omit())._(O.recoverWith(P.pass())), P.token("c"));
+        const { r } = run(p, "ac");
+        assert.ok(r.failed && r.recovered);
+        assert.deepStrictEqual(r.recovered.result, ["a", "c"]);
+      });
+
+      it("has no recovery when a failed element has none", () => {
+        const p = P.sequence(P.token("a"), P.token("b")._(O.recoverWith(constant("B"))), P.token("c"));
+        const { r } = run(p, "ax");
+        assert.ok(r.failed);
+        assert.strictEqual(r.recovered, undefined);
+      });
+    });
+
+    describe("choice", () => {
+      const alt1 = P.sequence(P.token("a"), P.token("b")._(O.recoverWith(constant("x"))));
+      const alt2 = P.sequence(P.token("a"), P.token("c"), P.token("d")._(O.recoverWith(constant("y"))));
+
+      it("returns the recovery that got furthest when no alternative succeeds", () => {
+        const { r, ctx } = run(P.choice(alt1, alt2), "ac?");
+        assert.ok(r.failed && r.recovered);
+        assert.deepStrictEqual(r.recovered.result, ["a", "c", "y"]);
+        assert.strictEqual(ctx.input.tell(), 2);
+      });
+
+      it("prefers the first of equally far recoveries", () => {
+        const { r } = run(P.choice(alt1, P.sequence(P.token("a"), P.token("e")._(O.recoverWith(constant("z"))))), "a?");
+        assert.ok(r.failed && r.recovered);
+        assert.deepStrictEqual(r.recovered.result, ["a", "x"]);
+      });
+
+      it("prefers a successful alternative over any recovery", () => {
+        const { r } = run(P.choice(alt1, P.token("aq")), "aq");
+        assert.ok(r.successful);
+        assert.strictEqual(r.result, "aq");
+      });
+    });
+
+    describe("optional", () => {
+      it("discards a recovery when there was no cut", () => {
+        const { r } = run(P.optional(P.token("a")._(O.recoverWith(constant("R")))), "b");
+        assert.ok(r.successful);
+        assert.strictEqual(r.result, null);
+      });
+
+      it("passes a recovery on after a cut", () => {
+        const p = P.optional(P.sequence(P.cut(), P.token("a")._(O.recoverWith(constant("R")))));
+        const { r } = run(p, "b");
+        assert.ok(r.failed && r.recovered);
+        assert.deepStrictEqual(r.recovered.result, ["R"]);
+      });
+    });
+
+    describe("many", () => {
+      it("leaves out a missing element after a separator", () => {
+        const { r } = run(P.many(P.token("x"), P.token(",")), "x,,x");
+        assert.ok(r.failed && r.recovered);
+        assert.deepStrictEqual(r.recovered.result, ["x", "x"]);
+        assert.deepStrictEqual(r.recovered.errors.map((e) => e.offset), [2]);
+      });
+
+      it("leaves out a missing element after a trailing separator", () => {
+        const { r } = run(P.many(P.token("x"), P.token(",")), "x,");
+        assert.ok(r.failed && r.recovered);
+        assert.deepStrictEqual(r.recovered.result, ["x"]);
+      });
+
+      it("keeps a committed element's recovery and continues", () => {
+        const kv = W.sequence(W.token("k"), W.cut(), W.token("v")._(O.recoverWith(constant("?"))));
+        const { r } = run(W.many(kv), "kv k kv");
+        assert.ok(r.failed && r.recovered);
+        assert.deepStrictEqual(r.recovered.result, [["k", "v"], ["k", "?"], ["k", "v"]]);
+      });
+
+      describe("with repeated separators", () => {
+        const term = W.token("t");
+        const and = W.token("AND");
+
+        it("keeps a zero-width recovery for each missing element", () => {
+          const { r } = run(W.many(term._(O.recoverWith(constant("?"))), and), "t AND AND AND t");
+          assert.ok(r.failed && r.recovered);
+          assert.deepStrictEqual(r.recovered.result, ["t", "?", "?", "t"]);
+          assert.deepStrictEqual(r.recovered.errors.map((e) => e.offset), [6, 10]);
+        });
+
+        it("leaves out missing elements that have no recovery", () => {
+          const { r } = run(W.many(term, and), "t AND AND AND t");
+          assert.ok(r.failed && r.recovered);
+          assert.deepStrictEqual(r.recovered.result, ["t", "t"]);
+          assert.deepStrictEqual(r.recovered.errors.map((e) => e.offset), [6, 10]);
+        });
+      });
+
+      describe("with until", () => {
+        const list = W.many(W.token("x"), W.token(","), 0, 0, W.token(";"));
+        const stmt = W.sequence(list, W.token(";"));
+
+        it("stops normally where until matches", () => {
+          const { r } = run(stmt, "x, x;");
+          assert.ok(r.successful);
+          assert.deepStrictEqual(r.result, [["x", "x"], ";"]);
+        });
+
+        it("skips junk between elements", () => {
+          const { r } = run(stmt, "x, ?? x;");
+          assert.ok(r.failed && r.recovered);
+          assert.deepStrictEqual(r.recovered.result, [["x", "x"], ";"]);
+          assert.strictEqual(r.recovered.errors.length, 1);
+          const [e] = r.recovered.errors;
+          assert.strictEqual(e.offset, 3);
+          assert.strictEqual(e.length, 3);
+        });
+
+        it("reports a missing separator and continues", () => {
+          const { r } = run(stmt, "x x;");
+          assert.ok(r.failed && r.recovered);
+          assert.deepStrictEqual(r.recovered.result, [["x", "x"], ";"]);
+          assert.deepStrictEqual(r.recovered.errors.map((e) => e.offset), [2]);
+        });
+
+        it("skips junk at the end of the list", () => {
+          const { r } = run(stmt, "x ??;");
+          assert.ok(r.failed && r.recovered);
+          assert.deepStrictEqual(r.recovered.result, [["x"], ";"]);
+        });
+
+        it("keeps an uncommitted element's recovery when until does not match", () => {
+          const el = W.sequence(W.token("k"), W.token("v")._(O.recoverWith(constant("?"))));
+          const { r } = run(W.sequence(W.many(el, undefined, 0, 0, W.token(";")), W.token(";")), "kv k kv;");
+          assert.ok(r.failed && r.recovered);
+          assert.deepStrictEqual(r.recovered.result, [[["k", "v"], ["k", "?"], ["k", "v"]], ";"]);
+        });
+
+        it("is ignored in strict mode", () => {
+          assert.throws(() => parse(stmt, "x, ?? x;"));
+        });
+      });
+
+      describe("when completion is on", () => {
+        const list = W.many(W.token("x"), W.token("AND"), 0, 0, W.token(";"));
+
+        it("does not skip junk when the failed attempt ran into EOF", () => {
+          const events: unknown[] = [];
+          const { r } = run(list, "x A", () => events.push(1));
+          assert.ok(r.successful);
+          assert.deepStrictEqual(r.result, ["x"]);
+          assert.strictEqual(events.length, 1);
+        });
+
+        it("skips the same junk when completion is off", () => {
+          const { r } = run(list, "x A");
+          assert.ok(r.failed && r.recovered);
+          assert.deepStrictEqual(r.recovered.result, ["x"]);
+        });
+
+        it("does not leave out a missing element at EOF", () => {
+          const { r } = run(W.many(W.token("ab"), W.token(",")), "ab, a", () => {});
+          assert.ok(r.failed);
+          assert.strictEqual(r.recovered, undefined);
+        });
+      });
+
+      it("stops when an iteration consumes nothing", () => {
+        assert.deepStrictEqual(parse(P.many(P.optional(P.token("x"))), "y", true), [null]);
+      });
     });
   });
 });

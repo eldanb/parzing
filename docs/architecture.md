@@ -1,6 +1,6 @@
 # Parzing — Architecture
 
-> This file is kept up to date by Claude Code after every working session. Last updated: 2026-10-03 (error recovery, steps 1-2: recovered failures, ParseError.offset, recovery-mode parse(), recoverWith).
+> This file is kept up to date by Claude Code after every working session. Last updated: 2026-10-03 (error recovery, steps 1-3: recovered failures, recovery-mode parse(), recoverWith, recovery in sequence/choice/many, many `until`).
 
 ## Purpose
 
@@ -121,14 +121,30 @@ Fired by `ParserContext.onIncompleteParseOption()` when a leaf parser encounters
 ### `SequenceCombinator<TS>` — `parser.sequence(...parsers)`
 Runs parsers left-to-right on consecutive fragments of input. Collects non-`void` results into a tuple typed as `SeqType<TS>` (using the `FilterVoid` mapped type). Supports whitespace skipping between elements via `ParserWithInternalWhitespaceSupport`.
 
+**Recovery mode:** an element that fails with a recovery contributes its recovered value (filtered for `undefined` like any result) and parsing continues from where the recovery ended. An element that fails without one fails the whole sequence with no recovery — a sequence never invents values. If any element recovered, the sequence returns a failure carrying the full tuple and all collected errors.
+
+Both `SequenceCombinator` and `ManyCombinator` collect errors with the internal helper `RecoveryErrors` (`src/combinators/RecoveryErrors.ts`, not exported): `add(first, all?)` records errors, and `result(value)` returns a plain success if nothing was recorded, otherwise a failure carrying `value` as its recovery.
+
 ### `ChooseCombinator<E>` — `parser.choice(...parsers)`
 Tries each alternative in order; on failure, rewinds to the pre-attempt bookmark and tries the next. Stops immediately if `cutEncountered` is set (no further alternatives are tried). Result type is the union of all alternative result types.
 
-### `ManyCombinator<T>` — `parser.many(parser, sep?, min?, max?)`
-Greedy repetition. Parses as many occurrences as possible, optionally separated by `sep`. Fails if the count is outside `[min, max]`. Handles cut correctly within both the item parser and the separator: saves/clears/restores `cutEncountered` around each sub-parse, and propagates failures without backtracking when a cut is active. Extends `ParserWithInternalWhitespaceSupport`.
+**Recovery mode:** if no alternative succeeds (and none cut), returns the recovery of the alternative that ended furthest in the input (ties go to the earlier alternative), leaving the input at its end.
+
+### `ManyCombinator<T>` — `parser.many(parser, sep?, min?, max?, until?)`
+Greedy repetition. Parses as many occurrences as possible, optionally separated by `sep`. Fails if the count is outside `[min, max]`. Handles cut correctly within both the item parser and the separator: saves/clears/restores `cutEncountered` around each sub-parse, and propagates failures without backtracking when a cut is active. Extends `ParserWithInternalWhitespaceSupport`. Implemented as a loop alternating between expecting an element and expecting a separator; attempting the same one at the same position twice ends the loop (so e.g. `many(optional(x))` terminates instead of looping forever).
+
+**Recovery mode.** `until` is an optional lookahead describing what may follow the list; it is never consumed and only used in recovery mode. Every failed attempt (element or separator) answers one question — *end of list, or error?* It is an error if it is an element required after a separator, if it cut, or (when it may recover) if `until` is set and neither it nor EOF is at the attempt's start. Otherwise the list ends normally.
+
+An error fails the list unless the attempt *may recover*: recovery mode is on, and not (the attempt ran into EOF while a completion callback is set) — the same EOF rule as `recoverWith`. A recoverable error is resolved by:
+- keeping the attempt's recovery if it has one, even a zero-width one such as an inserted `Missing` (an element's recovered value goes into the list; a separator's just counts as a separator), otherwise
+- skipping junk: advance character by character until the element, the separator or `until` matches (or EOF), and continue at whatever matched (`until`/EOF ends the list). A non-empty skip records `Unexpected input` with `offset`/`length`; an empty one records the attempt's own error (a missing element or separator). Without `until` nothing says where the list ends, so the skip never moves: it either finds the separator right here (missing element) or ends the list.
+
+If anything was recovered or skipped, `many` returns a failure carrying the list and the errors (after the usual `[min, max]` check, which fails without recovery).
+
+All lookaheads run strictly and save/restore both `cutEncountered` and `ranIntoEof`.
 
 ### `OptionalCombinator<T>` — `parser.optional(parser)`
-Wraps a parser: on success returns the result; on failure (without a cut) backtracks and returns `null`. Cut-safe: saves and restores `cutEncountered`.
+Wraps a parser: on success returns the result; on failure (without a cut) backtracks and returns `null`. Cut-safe: saves and restores `cutEncountered`. In recovery mode this means a recovery is discarded without a cut and passed on (as part of the failure) after one.
 
 ### `MapParser<V, T, C>` — `parser.map(parser, fn)` / `ParserOperators.map(fn)`
 Transforms the result of an underlying parser with a mapping function. Pass-through on failure. `C` defaults to `ParserContextType<V>`, so the context type is inferred from a concretely-typed input parser.

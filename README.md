@@ -432,6 +432,17 @@ function map<S, T>(mapper: (s: S) => T) {
 }
 ```
 
+## Change List
+
+### Version _(upcoming)_
+
+- **Error recovery.** `parse()` takes a new, optional 6th argument, `recover`. In recovery mode, a parse that hits syntax errors can still produce a best-effort result: instead of a plain error, `parse()` throws a `ParseError` whose `recovered` field holds `{ result, errors }`, with the recovered result and every error encountered. A clean parse returns its result as before.
+- **`ParserOperators.recoverWith(z)`.** In recovery mode, if the wrapped parser fails, `z` is run from the same start position and its result is used in place of the failed one. The result type becomes `T | R`. Failures at end of input are not recovered while a completion callback is set, so completion only ever sees what was actually typed.
+- **Recovery in `sequence`, `choice` and `many`.** A sequence keeps an element's recovered value and continues after it. A choice with no successful alternative returns the recovery that got furthest. `many` keeps recovered elements that are committed by a cut, and leaves out a missing element after a separator.
+- **`ParserBuilder.many(parser, sep?, min?, max?, until?)`.** The new `until` argument describes what may follow the list. It is used only in recovery mode, as lookahead: where the list would otherwise stop and `until` doesn't match, the input is treated as junk and skipped, and parsing continues at the next element, separator or `until`.
+- **`ParseError.offset` and `ParseError.length`.** The position of the error, and the size of the skipped range for errors produced by recovery.
+- **`many` no longer loops forever** when an iteration consumes no input (for example `many(optional(x))` on input that doesn't match `x`); it now stops.
+
 ## License and Credits
 Parzing is Copyright (c) 2021, 2022 Eldan Ben-Haim. 
 Licensed under MIT license.

@@ -1,4 +1,5 @@
 import { Parser, ParserContext, ParseResult, ParserType, ParserWithInternalWhitespaceSupport } from "../core";
+import { RecoveryErrors } from "./RecoveryErrors";
 
 export type FilterVoid<T> = T extends [infer Head, ...infer Rest] ? (Head extends void ? [...FilterVoid<Rest>] : [Head, ...FilterVoid<Rest>]) : T;
 export type SeqType<TS extends Parser<unknown, any>[]> = FilterVoid<{
@@ -13,6 +14,7 @@ export class SequenceCombinator<TS extends Parser<unknown, C>[], C = unknown> ex
 
     parse(parserContext: ParserContext<C>): ParseResult<SeqType<TS>> {
         const results: unknown[] = [];
+        const errors = new RecoveryErrors();
         for(let i = 0; i < this._parsers.length; i++) {
             if(i) {
                 const wsr = this.parseWhitespace(parserContext);
@@ -27,11 +29,16 @@ export class SequenceCombinator<TS extends Parser<unknown, C>[], C = unknown> ex
                 if(psr.result !== undefined) {
                     results.push(psr.result);
                 }
+            } else if(parserContext.recovering && psr.recovered) {
+                if(psr.recovered.result !== undefined) {
+                    results.push(psr.recovered.result);
+                }
+                errors.add(psr.parseError, psr.recovered.errors);
             } else {
                 return ParseResult.failed(psr.parseError);
             }
         }
 
-        return ParseResult.successful(results as SeqType<TS>);
+        return errors.result(results as SeqType<TS>);
     }
 }

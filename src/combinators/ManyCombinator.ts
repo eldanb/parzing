@@ -2,9 +2,13 @@ import {
   ParseError,
   Parser,
   ParserContext,
+  ParserInputBookmark,
   ParseResult,
   ParserWithInternalWhitespaceSupport,
 } from "../core";
+import { RecoveryErrors } from "./RecoveryErrors";
+
+type Step = "element" | "separator";
 
 export class ManyCombinator<T, C = unknown> extends ParserWithInternalWhitespaceSupport<
   T[],
@@ -15,66 +19,85 @@ export class ManyCombinator<T, C = unknown> extends ParserWithInternalWhitespace
     private _sepParser?: Parser<unknown, C>,
     private _min: number = 0,
     private _max: number = 0,
+    private _until?: Parser<unknown, C>,
   ) {
     super();
   }
 
   parse(parserContext: ParserContext<C>): ParseResult<T[]> {
+    const input = parserContext.input;
     const output: T[] = [];
+    const errors = new RecoveryErrors();
 
     const pce = parserContext.cutEncountered;
-    let mustParseElement: boolean = false;
+    let next: Step = "element";
+    let afterSeparator = false;
+    // Attempting the same thing at the same position twice means no progress; stop rather than loop.
+    const lastAttemptPos = { element: -1, separator: -1 };
 
     try {
-      do {
-        // Parse element
-        let bm = parserContext.input.getBookmark();
-        parserContext.cutEncountered = false;
-        const psr = this._parser.parse(parserContext);
-        if (psr.successful) {
-          output.push(psr.result);
+      while (true) {
+        const parser = next === "element" ? this._parser : this._sepParser!;
+
+        const start = input.getBookmark();
+        const startPos = input.tell();
+        if (lastAttemptPos[next] === startPos) {
+          break;
+        }
+        lastAttemptPos[next] = startPos;
+
+        const [r, ranIntoEof] = this.attempt(parserContext, parser);
+        let value: unknown;
+        if (r.successful) {
+          value = r.result;
         } else {
-          if (mustParseElement || parserContext.cutEncountered) {
-            return ParseResult.failed(psr.parseError);
-          } else {
-            parserContext.input.seekToBookmark(bm);
+          const mayRecover =
+            parserContext.recovering &&
+            !(ranIntoEof && parserContext.completionEnabled);
+          const isError =
+            (next === "element" && afterSeparator) ||
+            parserContext.cutEncountered ||
+            (mayRecover && !this.atEndOfList(parserContext, start));
+
+          if (!isError) {
+            input.seekToBookmark(start);
             break;
+          }
+
+          if (!mayRecover) {
+            return ParseResult.failed(r.parseError);
+          }
+
+          if (r.recovered) {
+            value = r.recovered.result;
+            errors.add(r.parseError, r.recovered.errors);
+          } else {
+            input.seekToBookmark(start);
+            const landing = this.skipJunk(parserContext, r.parseError, errors);
+            if (landing === "end") {
+              break;
+            }
+            next = landing;
+            afterSeparator = false;
+            continue;
           }
         }
 
-        mustParseElement = false;
+        if (next === "element") {
+          output.push(value as T);
+          afterSeparator = false;
+          next = this._sepParser ? "separator" : "element";
+        } else {
+          afterSeparator = true;
+          next = "element";
+        }
 
-        // Parse WS
         parserContext.cutEncountered = false;
-        let wpr = this.parseWhitespace(parserContext);
+        const wpr = this.parseWhitespace(parserContext);
         if (!wpr.successful) {
           return ParseResult.failed(wpr.parseError);
         }
-
-        // Attempt parse sep
-        if (this._sepParser) {
-          parserContext.cutEncountered = false;
-          bm = parserContext.input.getBookmark();
-          const sepr = this._sepParser.parse(parserContext);
-          if (sepr.successful) {
-            mustParseElement = true;
-
-            // Parse WS post separator
-            parserContext.cutEncountered = false;
-            wpr = this.parseWhitespace(parserContext);
-            if (!wpr.successful) {
-              return ParseResult.failed(wpr.parseError);
-            }
-          } else {
-            if (parserContext.cutEncountered) {
-              return ParseResult.failed(sepr.parseError);
-            } else {
-              parserContext.input.seekToBookmark(bm);
-              break;
-            }
-          }
-        }
-      } while (true);
+      }
 
       if (
         output.length < this._min ||
@@ -87,11 +110,103 @@ export class ManyCombinator<T, C = unknown> extends ParserWithInternalWhitespace
             `Expected occurences in range {${this._min}, ${this._max}}; found ${output.length}`,
           ),
         );
-      } else {
-        return ParseResult.successful(output);
       }
+
+      return errors.result(output);
     } finally {
       parserContext.cutEncountered = pce;
     }
+  }
+
+  private attempt<R>(
+    parserContext: ParserContext<C>,
+    parser: Parser<R, C>,
+  ): [ParseResult<R>, boolean] {
+    parserContext.cutEncountered = false;
+    const pre = parserContext.ranIntoEof;
+    parserContext.ranIntoEof = false;
+    const r = parser.parse(parserContext);
+    const ranIntoEof = parserContext.ranIntoEof;
+    parserContext.ranIntoEof = pre || ranIntoEof;
+    return [r, ranIntoEof];
+  }
+
+  private atEndOfList(parserContext: ParserContext<C>, at: ParserInputBookmark): boolean {
+    if (!this._until) {
+      return true;
+    }
+
+    const input = parserContext.input;
+    const current = input.getBookmark();
+    input.seekToBookmark(at);
+    const atEnd = input.eof() || this.lookahead(parserContext, this._until);
+    input.seekToBookmark(current);
+    return atEnd;
+  }
+
+  // Skips to the next element, separator or `until` and records the error. Without `until`
+  // nothing says where the list ends, so it never skips past the current position.
+  private skipJunk(
+    parserContext: ParserContext<C>,
+    zeroLengthError: ParseError,
+    errors: RecoveryErrors,
+  ): Step | "end" {
+    const input = parserContext.input;
+    const start = input.getBookmark();
+    const startPos = input.tell();
+
+    let landing: Step | "end";
+    while (true) {
+      if (input.eof()) {
+        landing = "end";
+        break;
+      }
+      if (this.lookahead(parserContext, this._parser)) {
+        landing = "element";
+        break;
+      }
+      if (this._sepParser && this.lookahead(parserContext, this._sepParser)) {
+        landing = "separator";
+        break;
+      }
+      if (!this._until || this.lookahead(parserContext, this._until)) {
+        landing = "end";
+        break;
+      }
+      input.read(1);
+    }
+
+    const skipped = input.tell() - startPos;
+    if (skipped === 0) {
+      errors.add(zeroLengthError);
+    } else {
+      const end = input.getBookmark();
+      input.seekToBookmark(start);
+      errors.add(
+        new ParseError(
+          input,
+          start,
+          this,
+          "Unexpected input",
+          parserContext.nameStack.slice(),
+          skipped,
+        ),
+      );
+      input.seekToBookmark(end);
+    }
+
+    return landing;
+  }
+
+  private lookahead(parserContext: ParserContext<C>, parser: Parser<unknown, C>): boolean {
+    const input = parserContext.input;
+    const bm = input.getBookmark();
+    const cut = parserContext.cutEncountered;
+    const ranIntoEof = parserContext.ranIntoEof;
+    const r = parserContext.strictly(() => parser.parse(parserContext));
+    input.seekToBookmark(bm);
+    parserContext.cutEncountered = cut;
+    parserContext.ranIntoEof = ranIntoEof;
+    return r.successful;
   }
 }
