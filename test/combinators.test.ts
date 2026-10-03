@@ -513,3 +513,20 @@ describe("Typing and postfix support", () => {
     assert.ok(ctxTyped && wrong);
   });
 });
+
+describe("Choice combinator and cuts", () => {
+  it("should try every alternative when a cut came before the choice", () => {
+    const p = P.sequence(P.token("a"), P.cut(), P.choice(P.token("x"), P.token("y")));
+    assert.deepStrictEqual(parse(p, "ay"), ["a", "y"]);
+  });
+
+  it("should still stop at an alternative that cut", () => {
+    const p = P.choice(P.sequence(P.token("a"), P.cut(), P.token("x")), P.token("ay"));
+    assert.throws(() => parse(p, "ay"));
+  });
+
+  it("should keep an earlier cut visible when every alternative fails", () => {
+    const p = P.optional(P.sequence(P.token("a"), P.cut(), P.choice(P.token("x"), P.token("y"))));
+    assert.throws(() => parse(p, "az", true));
+  });
+});

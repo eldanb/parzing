@@ -104,9 +104,13 @@ Any change that breaks backward compatibility for consumers of this library — 
 
 1. **Flag it explicitly**: Before implementing, state clearly that the change is a breaking API change and describe the impact on existing callers.
 2. **Request explicit approval**: Do not proceed with the change until the user has confirmed they want to break compatibility.
-3. **Bump the major version**: Once approved, increment the major version in `package.json` (e.g. `1.x.y` → `2.0.0`) as part of the same change.
+3. **Record it in the change list**: Once approved, add an entry to the upcoming version in the README's **Change List**, starting with **Breaking:** and describing what callers will see differently. Leave the version number blank; the major version is bumped (e.g. `1.x.y` → `2.0.0`, in both `package.json` and the change list) when the upcoming version is released.
 
-This applies to changes in `src/core.ts`, `src/builder.ts`, `src/operators.ts`, `src/parzing.ts`, and any public-facing parser or combinator interface.
+This applies to changes in `src/core.ts`, `src/builder.ts`, `src/operators.ts`, `src/parzing.ts`, and any public-facing parser or combinator interface. It includes bug fixes that change observable behaviour, e.g. a grammar that used to be rejected now parsing (as with the `choice` cut-protocol fix).
+
+## Change List
+
+The README's **Change List** records every user-visible change under the upcoming version (version number left blank until release). Add an entry with each such change, in the same commit.
 
 ## Architecture Documentation
 

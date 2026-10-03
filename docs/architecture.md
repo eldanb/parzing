@@ -1,6 +1,6 @@
 # Parzing — Architecture
 
-> This file is kept up to date by Claude Code after every working session. Last updated: 2026-10-03 (error recovery, steps 1-4: recovered failures, recovery-mode parse(), recoverWith, recovery in sequence/choice/many, many `until`, skipUntil, ref loop guard).
+> This file is kept up to date by Claude Code after every working session. Last updated: 2026-10-03 (error recovery, steps 1-4: recovered failures, recovery-mode parse(), recoverWith, recovery in sequence/choice/many, many `until`, skipUntil, ref loop guard; choice follows the cut protocol).
 
 ## Purpose
 
@@ -127,7 +127,7 @@ Runs parsers left-to-right on consecutive fragments of input. Collects non-`void
 Both `SequenceCombinator` and `ManyCombinator` collect errors with the internal helper `RecoveryErrors` (`src/utils/RecoveryErrors.ts`, not exported): `add(first, all?)` records errors, and `result(value)` returns a plain success if nothing was recorded, otherwise a failure carrying `value` as its recovery.
 
 ### `ChooseCombinator<E>` — `parser.choice(...parsers)`
-Tries each alternative in order; on failure, rewinds to the pre-attempt bookmark and tries the next. Stops immediately if `cutEncountered` is set (no further alternatives are tried). Result type is the union of all alternative result types.
+Tries each alternative in order; on failure, rewinds to the pre-attempt bookmark and tries the next. Follows the cut protocol: saves `cutEncountered` and clears it before each alternative, so a cut that happened *before* the choice (e.g. `sequence(a, cut, choice(x, y))`) doesn't stop it after the first alternative. If an alternative fails after its own cut, no further alternatives are tried and the flag stays set for callers; otherwise the saved value is restored. Result type is the union of all alternative result types.
 
 **Recovery mode:** if no alternative succeeds (and none cut), returns the recovery of the alternative that ended furthest in the input (ties go to the earlier alternative), leaving the input at its end.
 

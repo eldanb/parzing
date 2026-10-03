@@ -443,6 +443,7 @@ function map<S, T>(mapper: (s: S) => T) {
 - **`ParserBuilder.skipUntil(terminator)`.** Skips input up to (not including) `terminator`, or to the end of input, and returns the skipped text. Useful as a recovery, e.g. `stmt._(ParserOperators.recoverWith(pb.skipUntil(pb.token(';'))))`.
 - **Recursion guard in recovery mode.** A recursive rule (`ParserBuilder.ref`) that is re-entered at the same position without consuming input fails instead of recursing forever. This can only happen through zero-width recoveries; strict parsing is unaffected.
 - **`ParseError.offset` and `ParseError.length`.** The position of the error, and the size of the skipped range for errors produced by recovery.
+- **Breaking: `choice` no longer stops early after an earlier cut.** A cut *before* a choice in the same sequence (e.g. `sequence(a, cut(), choice(x, y))`) used to stop the choice after its first failing alternative; the choice now tries every alternative, as the cut protocol requires. A cut *inside* an alternative still stops it. Grammars with a cut before a choice may now accept input they used to reject.
 - **`many` no longer loops forever** when an iteration consumes no input (for example `many(optional(x))` on input that doesn't match `x`); it now stops.
 
 ## License and Credits
