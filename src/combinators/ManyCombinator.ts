@@ -6,7 +6,8 @@ import {
   ParseResult,
   ParserWithInternalWhitespaceSupport,
 } from "../core";
-import { RecoveryErrors } from "./RecoveryErrors";
+import { lookahead } from "../utils/lookahead";
+import { RecoveryErrors } from "../utils/RecoveryErrors";
 
 type Step = "element" | "separator";
 
@@ -139,7 +140,7 @@ export class ManyCombinator<T, C = unknown> extends ParserWithInternalWhitespace
     const input = parserContext.input;
     const current = input.getBookmark();
     input.seekToBookmark(at);
-    const atEnd = input.eof() || this.lookahead(parserContext, this._until);
+    const atEnd = input.eof() || lookahead(parserContext, this._until);
     input.seekToBookmark(current);
     return atEnd;
   }
@@ -161,15 +162,15 @@ export class ManyCombinator<T, C = unknown> extends ParserWithInternalWhitespace
         landing = "end";
         break;
       }
-      if (this.lookahead(parserContext, this._parser)) {
+      if (lookahead(parserContext, this._parser)) {
         landing = "element";
         break;
       }
-      if (this._sepParser && this.lookahead(parserContext, this._sepParser)) {
+      if (this._sepParser && lookahead(parserContext, this._sepParser)) {
         landing = "separator";
         break;
       }
-      if (!this._until || this.lookahead(parserContext, this._until)) {
+      if (!this._until || lookahead(parserContext, this._until)) {
         landing = "end";
         break;
       }
@@ -196,17 +197,5 @@ export class ManyCombinator<T, C = unknown> extends ParserWithInternalWhitespace
     }
 
     return landing;
-  }
-
-  private lookahead(parserContext: ParserContext<C>, parser: Parser<unknown, C>): boolean {
-    const input = parserContext.input;
-    const bm = input.getBookmark();
-    const cut = parserContext.cutEncountered;
-    const ranIntoEof = parserContext.ranIntoEof;
-    const r = parserContext.strictly(() => parser.parse(parserContext));
-    input.seekToBookmark(bm);
-    parserContext.cutEncountered = cut;
-    parserContext.ranIntoEof = ranIntoEof;
-    return r.successful;
   }
 }

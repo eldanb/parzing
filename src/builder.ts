@@ -16,6 +16,7 @@ import {
 } from "./core";
 import { AnyOfParser } from "./parsers/AnyOfParser";
 import { RegexParser } from "./parsers/RegexParser";
+import { SkipUntilParser } from "./parsers/SkipUntilParser";
 import { TokenParser } from "./parsers/TokenParser";
 
 type WithPostfixSupport<T> = T & {
@@ -59,6 +60,10 @@ export class ParserBuilder<C = unknown> {
 
   regex(re: RegExp) {
     return this.postProcessParser(new RegexParser<C>(re));
+  }
+
+  skipUntil(terminator: Parser<unknown, C>) {
+    return this.postProcessParser(new SkipUntilParser<C>(terminator));
   }
 
   fail(message: string) {

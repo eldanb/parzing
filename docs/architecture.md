@@ -1,6 +1,6 @@
 # Parzing — Architecture
 
-> This file is kept up to date by Claude Code after every working session. Last updated: 2026-10-03 (error recovery, steps 1-3: recovered failures, recovery-mode parse(), recoverWith, recovery in sequence/choice/many, many `until`).
+> This file is kept up to date by Claude Code after every working session. Last updated: 2026-10-03 (error recovery, steps 1-4: recovered failures, recovery-mode parse(), recoverWith, recovery in sequence/choice/many, many `until`, skipUntil, ref loop guard).
 
 ## Purpose
 
@@ -22,7 +22,7 @@ Parzing is a **parser combinator library** for TypeScript. It provides typed bui
 │  ChooseCombinator  │  AnyOfParser                   │
 │  ManyCombinator    │  RegexParser                   │
 │  OptionalCombinator│  WhitespaceParser              │
-│  MapParser         │                                │
+│  MapParser         │  SkipUntilParser               │
 │  AstBuilder        │                                │
 │  AttemptParser     │                                │
 │  ParserWithIndices │                                │
@@ -94,7 +94,7 @@ Fired by `ParserContext.onIncompleteParseOption()` when a leaf parser encounters
 | `FailParser<C>` | Always fails with a given message |
 | `PassParser<C>` | Always succeeds, returns `void` |
 | `CutParser<C>` | Sets `ParserContext.cutEncountered = true`; used to prevent backtracking |
-| `RefParser<T, C>` | Lazily resolves to a parser returned by a callback; enables recursive grammars |
+| `RefParser<T, C>` | Lazily resolves to a parser returned by a callback; enables recursive grammars. In recovery mode, re-entering the same `RefParser` at the same input position while it is still active there fails without recovery ("Recursion without progress"): zero-width recoveries could otherwise recurse forever. The active positions are tracked per `ParserContext` in a `WeakMap`. In strict mode such a re-entry is left recursion and behaves as before. |
 | `ParserWithInternalWhitespaceSupport<T, C>` | Base class for combinators that skip whitespace between sub-parsers; exposes `.whitespace(ws)` (returns `this`, so postfix support survives the call) |
 
 `ParserType<P>` and `ParserContextType<P>` extract the result and context types of a parser type.
@@ -109,6 +109,7 @@ Fired by `ParserContext.onIncompleteParseOption()` when a leaf parser encounters
 | `AnyOfParser.ts` | `AnyOfParser` | Characters from a set, with min/max length | `string` |
 | `RegexParser.ts` | `RegexParser` | A RegExp anchored at the current position | `string` |
 | `WhitespaceParser.ts` | `WhitespaceParser` | Space / tab / newline; optional or mandatory | `void` |
+| `SkipUntilParser.ts` | `SkipUntilParser` — `parser.skipUntil(terminator)` | Everything up to (not including) a match of `terminator`, or to EOF; always succeeds. The terminator is tried by strict lookahead and never at EOF. Intended as a building block for `recoverWith` recoveries | `string` |
 
 **AnyOfParser optimisation**: for character sets where all characters are ASCII (code < 256), the parser builds a 32-entry number-array bitmap at construction time and uses bitwise lookups at runtime instead of `String.indexOf`.
 
@@ -123,7 +124,7 @@ Runs parsers left-to-right on consecutive fragments of input. Collects non-`void
 
 **Recovery mode:** an element that fails with a recovery contributes its recovered value (filtered for `undefined` like any result) and parsing continues from where the recovery ended. An element that fails without one fails the whole sequence with no recovery — a sequence never invents values. If any element recovered, the sequence returns a failure carrying the full tuple and all collected errors.
 
-Both `SequenceCombinator` and `ManyCombinator` collect errors with the internal helper `RecoveryErrors` (`src/combinators/RecoveryErrors.ts`, not exported): `add(first, all?)` records errors, and `result(value)` returns a plain success if nothing was recorded, otherwise a failure carrying `value` as its recovery.
+Both `SequenceCombinator` and `ManyCombinator` collect errors with the internal helper `RecoveryErrors` (`src/utils/RecoveryErrors.ts`, not exported): `add(first, all?)` records errors, and `result(value)` returns a plain success if nothing was recorded, otherwise a failure carrying `value` as its recovery.
 
 ### `ChooseCombinator<E>` — `parser.choice(...parsers)`
 Tries each alternative in order; on failure, rewinds to the pre-attempt bookmark and tries the next. Stops immediately if `cutEncountered` is set (no further alternatives are tried). Result type is the union of all alternative result types.
@@ -141,7 +142,7 @@ An error fails the list unless the attempt *may recover*: recovery mode is on, a
 
 If anything was recovered or skipped, `many` returns a failure carrying the list and the errors (after the usual `[min, max]` check, which fails without recovery).
 
-All lookaheads run strictly and save/restore both `cutEncountered` and `ranIntoEof`.
+All lookaheads go through the internal helper `lookahead()` (`src/utils/lookahead.ts`, also used by `SkipUntilParser`): it runs the parser strictly, then restores the input position, `cutEncountered` and `ranIntoEof`.
 
 ### `OptionalCombinator<T>` — `parser.optional(parser)`
 Wraps a parser: on success returns the result; on failure (without a cut) backtracks and returns `null`. Cut-safe: saves and restores `cutEncountered`. In recovery mode this means a recovery is discarded without a cut and passed on (as part of the failure) after one.

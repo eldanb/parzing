@@ -255,15 +255,40 @@ export class CutParser<C = unknown> implements Parser<void, C> {
 export class RefParser<T, C = unknown> implements Parser<T, C> {
   constructor(private _parserProvider: () => Parser<T, C>) {}
 
-  parse(parserContext: ParserContext<C>) {
+  parse(parserContext: ParserContext<C>): ParseResult<T> {
     if (!this._parser) {
       this._parser = this._parserProvider();
     }
 
-    return this._parser.parse(parserContext);
+    if (!parserContext.recovering) {
+      return this._parser.parse(parserContext);
+    }
+
+    // Zero-width recoveries can lead back here without consuming input; re-entering at the
+    // same position would recurse forever, so fail instead.
+    let active = this._activeAt.get(parserContext);
+    if (!active) {
+      active = new Set();
+      this._activeAt.set(parserContext, active);
+    }
+
+    const pos = parserContext.input.tell();
+    if (active.has(pos)) {
+      return ParseResult.failed(
+        ParseError.parserRejected(this, parserContext, "Recursion without progress"),
+      );
+    }
+
+    active.add(pos);
+    try {
+      return this._parser.parse(parserContext);
+    } finally {
+      active.delete(pos);
+    }
   }
 
   private _parser?: Parser<T, C>;
+  private _activeAt = new WeakMap<ParserContext<any>, Set<number>>();
 }
 
 export type ParserType<pt> = pt extends Parser<infer T, any> ? T : never;

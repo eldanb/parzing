@@ -433,4 +433,70 @@ describe("Recovery core", () => {
       });
     });
   });
+
+  describe("skipUntil", () => {
+    it("skips up to the terminator without consuming it", () => {
+      const ctx = new ParserContext(new StringParserInput("ab;c"));
+      const r = P.skipUntil(P.token(";")).parse(ctx);
+      assert.ok(r.successful);
+      assert.strictEqual(r.result, "ab");
+      assert.strictEqual(ctx.input.tell(), 2);
+    });
+
+    it("succeeds with nothing when already at the terminator", () => {
+      assert.strictEqual(parse(P.sequence(P.skipUntil(P.token(";")), P.token(";")), ";")[0], "");
+    });
+
+    it("skips to the end when the terminator never appears", () => {
+      assert.strictEqual(parse(P.skipUntil(P.token(";")), "abc"), "abc");
+    });
+
+    it("never tries the terminator at the end of input", () => {
+      const triedAt: number[] = [];
+      const spy: Parser<void> = {
+        parse(ctx: ParserContext<unknown>) {
+          triedAt.push(ctx.input.tell());
+          return ParseResult.failed(ParseError.parserRejected(this, ctx));
+        },
+      };
+      parse(P.skipUntil(spy), "ab");
+      assert.deepStrictEqual(triedAt, [0, 1]);
+    });
+
+    it("leaves cut and ranIntoEof untouched", () => {
+      const ctx = new ParserContext(new StringParserInput("ab"));
+      P.skipUntil(P.sequence(P.cut(), P.token("abc"))).parse(ctx);
+      assert.strictEqual(ctx.cutEncountered, false);
+      assert.strictEqual(ctx.ranIntoEof, false);
+    });
+  });
+
+  describe("ref loop guard", () => {
+    // factor := "("? expr ")"?   with both parentheses recovered as zero-width when missing
+    let expr: Parser<unknown>;
+    const factor = P.sequence(
+      P.token("(")._(O.omit())._(O.recoverWith(P.pass())),
+      P.ref(() => expr),
+      P.token(")")._(O.omit())._(O.recoverWith(P.pass())),
+    );
+    expr = P.choice(P.token("x"), factor);
+
+    it("terminates zero-width recursion in recovery mode", () => {
+      assert.throws(
+        () => parse(expr, "@", false, undefined, undefined, true),
+        (e: ParseError) => e.recovered === undefined,
+      );
+    });
+
+    it("still recovers around legitimate recursion", () => {
+      assert.throws(
+        () => parse(expr, "((x)", false, undefined, undefined, true),
+        (e: ParseError) => JSON.stringify(e.recovered!.result) === JSON.stringify([["x"]]),
+      );
+    });
+
+    it("does not affect strict parsing", () => {
+      assert.deepStrictEqual(parse(expr, "((x))"), [["x"]]);
+    });
+  });
 });

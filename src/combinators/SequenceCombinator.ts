@@ -1,5 +1,5 @@
 import { Parser, ParserContext, ParseResult, ParserType, ParserWithInternalWhitespaceSupport } from "../core";
-import { RecoveryErrors } from "./RecoveryErrors";
+import { RecoveryErrors } from "../utils/RecoveryErrors";
 
 export type FilterVoid<T> = T extends [infer Head, ...infer Rest] ? (Head extends void ? [...FilterVoid<Rest>] : [Head, ...FilterVoid<Rest>]) : T;
 export type SeqType<TS extends Parser<unknown, any>[]> = FilterVoid<{
