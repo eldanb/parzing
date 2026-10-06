@@ -167,13 +167,15 @@ Wraps a parser with optional `enter` and `leave` callbacks that receive the type
 Wraps a parser with a name label. Before invoking the inner parser, pushes `name` onto `ParserContext.nameStack`; pops it afterward (via `try/finally`). The name stack propagates into `ParseError.nameStack` (for human-readable error context) and into `CompletionEvent.nameStack` (for labelling completion options). Does not affect parse results or `cutEncountered`.
 
 
-### `RecoveringParser<T, R, C>` — `ParserOperators.recoverWith(z)`
-The only source of recovered values. Outside recovery mode it is transparent. In recovery mode it:
+### `RecoveringParser<T, R, C>` — `ParserOperators.recoverWith(z)` / `ParserOperators.orRecoverWith(z)`
+The only source of recovered values. Described below for `recoverWith`; `orRecoverWith` differs only in step 1. Outside recovery mode it is transparent. In recovery mode it:
 1. Runs the inner parser **strictly** (`ctx.strictly`), so recoveries nested inside it don't run — `z` overrides them. Returns the result if it succeeds.
 2. On failure, if the inner parser ran into EOF (`ranIntoEof`, saved/cleared/restored around the call) **and** a completion callback is set, returns the failure unrecovered: at the cursor, a failure means "not typed yet", and inventing input there would produce bogus completion events downstream.
 3. Otherwise seeks back to its start and runs `z` (in recovery mode). `z`'s own cuts are hidden; the inner parser's cut state is what outer combinators see. A successful `z` yields `failed(innerError, { result: z.result, errors: [innerError] })`; a `z` that fails with its own recovery contributes that recovery and its errors; a `z` that fails outright leaves the inner failure unrecovered.
 
-The result type is `T | R`, so recovery values appear in the type exactly where the grammar author introduced them.
+**`orRecoverWith(z)`** (constructed with `overrides = false`) runs the inner parser in recovery mode instead of strictly, and returns its result unchanged if it succeeds **or fails with a recovery of its own**; `z` is only a fallback for failures nothing inside could recover (steps 2-3 then apply as above). Use `recoverWith` to replace a construct's recovery with a coarser one, `orRecoverWith` to add a last resort below finer-grained ones (e.g. around a parenthesised expression).
+
+The result type is `T | R` for both, so recovery values appear in the type exactly where the grammar author introduced them.
 ---
 
 ## Builder & Operators (`src/builder.ts`, `src/operators.ts`)

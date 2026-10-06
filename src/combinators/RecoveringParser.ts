@@ -1,9 +1,12 @@
 import { Parser, ParserContext, ParseResult } from "../core";
 
+// `overrides` (recoverWith): the inner parser runs strictly and the recovery replaces any of its own.
+// Otherwise (orRecoverWith): the inner parser recovers as usual and the recovery is only a fallback.
 export class RecoveringParser<T, R, C = unknown> implements Parser<T | R, C> {
   constructor(
     private _parser: Parser<T, C>,
     private _recovery: Parser<R, C>,
+    private _overrides: boolean = true,
   ) {}
 
   parse(parserContext: ParserContext<C>): ParseResult<T | R> {
@@ -16,11 +19,13 @@ export class RecoveringParser<T, R, C = unknown> implements Parser<T | R, C> {
 
     const pre = parserContext.ranIntoEof;
     parserContext.ranIntoEof = false;
-    const r = parserContext.strictly(() => this._parser.parse(parserContext));
+    const r = this._overrides
+      ? parserContext.strictly(() => this._parser.parse(parserContext))
+      : this._parser.parse(parserContext);
     const ranIntoEof = parserContext.ranIntoEof;
     parserContext.ranIntoEof = pre || ranIntoEof;
 
-    if (r.successful) {
+    if (r.successful || r.recovered) {
       return r;
     }
 

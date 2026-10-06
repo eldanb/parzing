@@ -246,6 +246,60 @@ describe("Recovery core", () => {
     });
   });
 
+  describe("orRecoverWith", () => {
+    const constant = <T>(v: T) => P.pass()._(O.map(() => v));
+
+    function recovering(text: string, onCompletion?: () => void) {
+      return new ParserContext(new StringParserInput(text), null, undefined, onCompletion, true);
+    }
+
+    it("is transparent outside recovery mode", () => {
+      const p = P.token("a")._(O.orRecoverWith(constant("R")));
+      assert.strictEqual(parse(p, "a"), "a");
+      assert.throws(() => parse(p, "x"), (e: ParseError) => e.recovered === undefined);
+    });
+
+    it("keeps a recovery produced inside the inner parser", () => {
+      const inner = P.token("a")._(O.recoverWith(constant("inner")));
+      const p = P.parser(inner)._(O.orRecoverWith(constant("outer")));
+      const r = p.parse(recovering("x"));
+      assert.ok(r.failed && r.recovered);
+      assert.strictEqual(r.recovered.result, "inner");
+    });
+
+    it("falls back to the recovery parser when the inner parser has no recovery", () => {
+      const p = P.sequence(P.token("("), P.token("x"), P.token(")"))._(O.orRecoverWith(P.regex(/\(.*/)));
+      const r = p.parse(recovering("(y)"));
+      assert.ok(r.failed && r.recovered);
+      assert.strictEqual(r.recovered.result, "(y)");
+      assert.strictEqual(r.recovered.errors.length, 1);
+    });
+
+    it("uses inner recoveries inside a larger construct, and the fallback only where they don't reach", () => {
+      const item = P.sequence(P.token("k"), P.token("v")._(O.recoverWith(constant("?"))));
+      const group = P.sequence(P.token("("), item, P.token(")"))._(O.orRecoverWith(constant("whole group")));
+      const kept = group.parse(recovering("(k)"));
+      assert.ok(kept.failed && kept.recovered);
+      assert.deepStrictEqual(kept.recovered.result, ["(", ["k", "?"], ")"]);
+      const fallback = group.parse(recovering("(z)"));
+      assert.ok(fallback.failed && fallback.recovered);
+      assert.strictEqual(fallback.recovered.result, "whole group");
+    });
+
+    it("does not fall back at the end of input when completion is on", () => {
+      const p = P.token("END")._(O.orRecoverWith(constant("missing")));
+      const r = p.parse(recovering("EN", () => {}));
+      assert.ok(r.failed);
+      assert.strictEqual(r.recovered, undefined);
+    });
+
+    it("types the result as the union of both parsers", () => {
+      class Missing {}
+      const p: Parser<string | Missing> = P.token("a")._(O.orRecoverWith(constant(new Missing())));
+      assert.ok(p);
+    });
+  });
+
   describe("combinators in recovery mode", () => {
     const W = new ParserBuilder(new WhitespaceParser(false));
     const constant = <T>(v: T) => P.pass()._(O.map(() => v));

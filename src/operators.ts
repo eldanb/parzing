@@ -61,4 +61,10 @@ export namespace ParserOperators {
             return new RecoveringParser<T, R, C>(p, recovery);
         }
     }
+
+    export function orRecoverWith<R, C = unknown>(recovery: Parser<R, C>) {
+        return <T>(p: Parser<T, C>) => {
+            return new RecoveringParser<T, R, C>(p, recovery, false);
+        }
+    }
 }
