@@ -434,7 +434,7 @@ function map<S, T>(mapper: (s: S) => T) {
 
 ## Change List
 
-### Version _(upcoming)_
+### Version 1.5.0
 
 - **Error recovery.** `parse()` takes a new, optional 6th argument, `recover`. In recovery mode, a parse that hits syntax errors can still produce a best-effort result: instead of a plain error, `parse()` throws a `ParseError` whose `recovered` field holds `{ result, errors }`, with the recovered result and every error encountered. A clean parse returns its result as before.
 - **`ParserOperators.recoverWith(z)`.** In recovery mode, if the wrapped parser fails, `z` is run from the same start position and its result is used in place of the failed one. The result type becomes `T | R`. Failures at end of input are not recovered while a completion callback is set, so completion only ever sees what was actually typed.
