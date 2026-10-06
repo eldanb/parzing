@@ -4,6 +4,7 @@ import { NamedParser } from "./combinators/NamedParser";
 import { OptionalCombinator } from "./combinators/OptionalCombinator";
 import { ParseObserver, ParseObserverCallbacks } from "./combinators/ParseObserver";
 import { ParserWithIndices } from "./combinators/ParserWithIndices";
+import { RecoveringParser } from "./combinators/RecoveringParser";
 import { Parser, ParseResult, ParserWithInternalWhitespaceSupport } from "./core";
 
 export namespace ParserOperators {
@@ -52,6 +53,18 @@ export namespace ParserOperators {
     export function named<T, C = unknown>(name: string) {
         return (p: Parser<T, C>) => {
             return new NamedParser(p, name);
+        }
+    }
+
+    export function recoverWith<R, C = unknown>(recovery: Parser<R, C>) {
+        return <T>(p: Parser<T, C>) => {
+            return new RecoveringParser<T, R, C>(p, recovery);
+        }
+    }
+
+    export function orRecoverWith<R, C = unknown>(recovery: Parser<R, C>) {
+        return <T>(p: Parser<T, C>) => {
+            return new RecoveringParser<T, R, C>(p, recovery, false);
         }
     }
 }
